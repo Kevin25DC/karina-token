@@ -388,8 +388,13 @@ func (a *App) TestWebhook() error {
 	return a.svc.TestWebhook()
 }
 
-// CompleteOnboarding marks the first-run onboarding as finished.
+// CompleteOnboarding marks the first-run onboarding as finished. It also
+// asks the OS for notification permission right away, on platforms that
+// require it (macOS): this is the first moment the user is actively engaged
+// with the app, a better time for that system prompt to appear than
+// silently the first time a threshold alert happens to fire.
 func (a *App) CompleteOnboarding() error {
+	platform.RequestNotificationPermission()
 	return a.svc.CompleteOnboarding()
 }
 

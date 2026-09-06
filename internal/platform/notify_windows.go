@@ -84,6 +84,10 @@ func Notify(title, message string) error {
 
 var errNotifyUnavailable = errors.New("no se pudo preparar la ventana de notificaciones")
 
+// RequestNotificationPermission is a no-op on Windows: Shell_NotifyIcon
+// balloons need no explicit user permission.
+func RequestNotificationPermission() {}
+
 // --- Win32 plumbing (mirrors the subset used by getlantern/systray) -------
 
 var (

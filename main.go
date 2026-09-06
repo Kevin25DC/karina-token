@@ -17,12 +17,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// trayIcon must be a real .ico (systray's Windows backend loads it via
-// LoadImage/IMAGE_ICON, which rejects a plain .png despite the misleading
-// "operation completed successfully" it reports on failure).
-//
-//go:embed build/windows/icon.ico
-var trayIcon []byte
+// trayIcon holds the platform-appropriate menu bar/tray icon bytes; see
+// icon_windows.go, icon_darwin.go and icon_other.go.
 
 const appName = "Karina"
 const appVersion = "0.5.1"
