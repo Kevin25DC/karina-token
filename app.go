@@ -18,6 +18,7 @@ import (
 	"karina/internal/credentials"
 	"karina/internal/domain"
 	"karina/internal/platform"
+	"karina/internal/transcripts"
 	"karina/internal/updater"
 )
 
@@ -401,6 +402,12 @@ func (a *App) CompleteOnboarding() error {
 // History returns bucketed local observations for a provider and span.
 func (a *App) History(provider string, span string) (core.HistoryResult, error) {
 	return a.svc.History(domain.ProviderID(provider), domain.HistorySpan(span))
+}
+
+// ClaudeCodeUsage returns real local Claude Code token usage per project
+// and per day, read straight from ~/.claude/projects, for the given span.
+func (a *App) ClaudeCodeUsage(span string) (transcripts.Summary, error) {
+	return a.svc.ClaudeCodeUsage(domain.HistorySpan(span))
 }
 
 // ExportHistory opens a native "save as" dialog and writes the raw local

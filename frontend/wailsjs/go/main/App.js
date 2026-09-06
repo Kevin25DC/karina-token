@@ -126,3 +126,7 @@ export function History(provider, span) {
 export function ExportHistory(provider, span) {
   return call('ExportHistory', [provider, span]);
 }
+
+export function ClaudeCodeUsage(span) {
+  return call('ClaudeCodeUsage', [span]);
+}

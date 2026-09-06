@@ -29,6 +29,7 @@ import (
 	"karina/internal/providers/api"
 	"karina/internal/scheduler"
 	"karina/internal/storage"
+	"karina/internal/transcripts"
 	"karina/internal/webhook"
 )
 
@@ -1190,6 +1191,19 @@ type HistoryResult struct {
 	HasUsage   bool                  `json:"has_usage"`
 	HasBilling bool                  `json:"has_billing"`
 	Points     []domain.HistoryPoint `json:"points"`
+}
+
+// ClaudeCodeUsage reads local Claude Code transcripts
+// (~/.claude/projects/**/*.jsonl) and reports real token usage per project
+// and per day for the given span. Unlike every provider adapter, this
+// reads no network at all — it is the one number Karina can show with zero
+// ambiguity, straight from the same files Claude Code itself writes.
+func (s *Service) ClaudeCodeUsage(span domain.HistorySpan) (transcripts.Summary, error) {
+	root, err := transcripts.DefaultRoot()
+	if err != nil {
+		return transcripts.Summary{}, err
+	}
+	return transcripts.Scan(root, span.Start(time.Now()))
 }
 
 // History returns downsampled local observations for a provider and span.

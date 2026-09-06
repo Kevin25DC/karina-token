@@ -2,6 +2,10 @@
 
 export function formatTokens(n: number): string {
   if (!Number.isFinite(n)) return '—';
+  if (n >= 1_000_000_000) {
+    const v = n / 1_000_000_000;
+    return `${trim(v)}B`;
+  }
   if (n >= 1_000_000) {
     const v = n / 1_000_000;
     return `${trim(v)}M`;

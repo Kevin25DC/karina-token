@@ -9,7 +9,7 @@ import type {
   ProviderState,
 } from './lib/types';
 
-export type View = 'dashboard' | 'history' | 'settings';
+export type View = 'dashboard' | 'history' | 'claudecode' | 'settings';
 
 export interface Toast {
   id: number;

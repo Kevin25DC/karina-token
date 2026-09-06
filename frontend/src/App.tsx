@@ -5,11 +5,13 @@ import {
   RefreshCw,
   Settings,
   SlidersHorizontal,
+  Terminal,
 } from 'lucide-react';
 import { useStore, type View } from '@/store';
 import { cn } from '@/lib/hooks';
 import { Dashboard } from '@/pages/Dashboard';
 import { History } from '@/pages/History';
+import { ClaudeCodeUsage } from '@/pages/ClaudeCodeUsage';
 import { Settings as SettingsPage } from '@/pages/Settings';
 import { Onboarding } from '@/pages/Onboarding';
 import { ConnectSheet } from '@/components/ConnectSheet';
@@ -23,7 +25,8 @@ import { Kbd, Surface } from '@/components/primitives';
 const NAV: Array<{ id: View; label: string; icon: typeof BarChart3; kbd: string }> = [
   { id: 'dashboard', label: 'Panel', icon: SlidersHorizontal, kbd: '1' },
   { id: 'history', label: 'Historial de uso', icon: BarChart3, kbd: '2' },
-  { id: 'settings', label: 'Ajustes', icon: Settings, kbd: '3' },
+  { id: 'claudecode', label: 'Claude Code', icon: Terminal, kbd: '3' },
+  { id: 'settings', label: 'Ajustes', icon: Settings, kbd: '4' },
 ];
 
 export default function App() {
@@ -55,7 +58,8 @@ export default function App() {
       if (typing) return;
       if (e.key === '1') setView('dashboard');
       else if (e.key === '2') setView('history');
-      else if (e.key === '3') setView('settings');
+      else if (e.key === '3') setView('claudecode');
+      else if (e.key === '4') setView('settings');
       else if (e.key === 'r' || e.key === 'R') void manualRefresh();
     };
     window.addEventListener('keydown', onKey);
@@ -171,6 +175,7 @@ export default function App() {
         <div className="relative">
           {view === 'dashboard' && <Dashboard />}
           {view === 'history' && <History />}
+          {view === 'claudecode' && <ClaudeCodeUsage />}
           {view === 'settings' && <SettingsPage />}
         </div>
       </main>

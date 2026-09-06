@@ -100,6 +100,32 @@ export interface HistoryResult {
 
 export type HistorySpan = 'today' | '7d' | '30d';
 
+export interface UsageTokens {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+}
+
+export interface ClaudeCodeProjectUsage {
+  path: string;
+  label: string;
+  sessions: number;
+  tokens: UsageTokens;
+}
+
+export interface ClaudeCodeDayUsage {
+  date: string;
+  tokens: UsageTokens;
+}
+
+export interface ClaudeCodeUsageSummary {
+  available: boolean;
+  projects: ClaudeCodeProjectUsage[] | null;
+  days: ClaudeCodeDayUsage[] | null;
+  total: UsageTokens;
+}
+
 export interface ConfigSnapshot {
   refresh_interval_seconds: number;
   start_with_system: boolean;

@@ -4,6 +4,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 import type {
   AppInfo,
+  ClaudeCodeUsageSummary,
   ClaudeOAuthStart,
   ConfigSnapshot,
   EventPayload,
@@ -82,6 +83,8 @@ export const api = {
   exitWidgetMode: () => call<void>(() => App.ExitWidgetMode()),
   history: (provider: ProviderID, span: HistorySpan) =>
     call<HistoryResult>(() => App.History(provider, span)),
+  claudeCodeUsage: (span: HistorySpan) =>
+    call<ClaudeCodeUsageSummary>(() => App.ClaudeCodeUsage(span)),
   exportHistory: (provider: ProviderID, span: HistorySpan) =>
     call<string>(() => App.ExportHistory(provider, span)),
   refreshNow: () => call<void>(() => App.RefreshNow()),
