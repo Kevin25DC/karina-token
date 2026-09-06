@@ -2,7 +2,10 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"karina/internal/credentials"
 	"karina/internal/domain"
 	"karina/internal/providers/api"
+	"karina/internal/webhook"
 )
 
 type fakeProvider struct {
@@ -134,6 +138,72 @@ func TestSaveKeyEnablesAndRefreshes(t *testing.T) {
 	}
 	if !hist.HasUsage || len(hist.Points) == 0 {
 		t.Fatalf("expected usage history, got %+v", hist)
+	}
+}
+
+func TestThresholdAlertFiresWebhook(t *testing.T) {
+	f := &fakeProvider{id: "openai", name: "OpenAI",
+		state: domain.ProviderState{Status: domain.StatusConnected, UsageAvailable: true, UsedTokens: 90, LimitTokens: 100}}
+	s := newTestService(t, map[string]*fakeProvider{"openai": f})
+
+	if err := s.SaveProviderKey("openai", "sk-test"); err != nil {
+		t.Fatalf("save key: %v", err)
+	}
+
+	received := make(chan webhook.Payload, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p webhook.Payload
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			t.Errorf("decode webhook body: %v", err)
+		}
+		received <- p
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := s.SetWebhookURL(srv.URL); err != nil {
+		t.Fatalf("set webhook url: %v", err)
+	}
+
+	s.refreshOne(context.Background(), "openai")
+
+	select {
+	case p := <-received:
+		if p.Karina.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", p.Karina.Provider)
+		}
+		if p.Karina.Percent != 90 {
+			t.Fatalf("percent = %v, want 90", p.Karina.Percent)
+		}
+		if p.Content == "" || p.Text == "" {
+			t.Fatal("content and text should both be set for Discord/Slack compatibility")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for webhook call")
+	}
+}
+
+func TestSetWebhookURLRejectsInvalidValues(t *testing.T) {
+	s := newTestService(t, map[string]*fakeProvider{})
+
+	if err := s.SetWebhookURL("not-a-url"); err == nil {
+		t.Fatal("expected error for URL without scheme")
+	}
+	if err := s.SetWebhookURL("ftp://example.com/hook"); err == nil {
+		t.Fatal("expected error for non-http(s) scheme")
+	}
+	if err := s.SetWebhookURL("https://example.com/hook"); err != nil {
+		t.Fatalf("valid URL should be accepted: %v", err)
+	}
+	if !s.Config().WebhookConfigured {
+		t.Fatal("webhook should be reported as configured")
+	}
+
+	if err := s.SetWebhookURL(""); err != nil {
+		t.Fatalf("clearing webhook should not error: %v", err)
+	}
+	if s.Config().WebhookConfigured {
+		t.Fatal("webhook should be reported as cleared")
 	}
 }
 

@@ -39,6 +39,8 @@ export function SetRefreshInterval(seconds: number): Promise<void>;
 export function SetStartWithSystem(enabled: boolean): Promise<void>;
 export function SetAlertsEnabled(enabled: boolean): Promise<void>;
 export function SetAlertThreshold(percent: number): Promise<void>;
+export function SetWebhookURL(url: string): Promise<void>;
+export function TestWebhook(): Promise<void>;
 export function CompleteOnboarding(): Promise<void>;
 export function EnterWidgetMode(): Promise<void>;
 export function ExitWidgetMode(): Promise<void>;

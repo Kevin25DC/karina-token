@@ -18,6 +18,12 @@ const Service = "Karina"
 // Claude subscription OAuth token.
 const ClaudeOAuthAccount = "claude_subscription_oauth"
 
+// WebhookAccount is the keyring account that stores the outgoing webhook URL
+// used for threshold alerts. It lives in the keyring (not config.toml)
+// because a Slack/Discord webhook URL grants posting rights to whoever holds
+// it, so it deserves the same protection as an API key.
+const WebhookAccount = "webhook_url"
+
 // Backend abstracts the underlying OS credential store so it can be swapped
 // in tests.
 type Backend interface {

@@ -8,12 +8,15 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +29,7 @@ import (
 	"karina/internal/providers/api"
 	"karina/internal/scheduler"
 	"karina/internal/storage"
+	"karina/internal/webhook"
 )
 
 const (
@@ -671,6 +675,7 @@ func (s *Service) checkThresholds(state domain.ProviderState) {
 		if err := s.notify(title, msg); err != nil {
 			s.logger.Debug("os notification failed", "error", err.Error())
 		}
+		s.fireWebhook(title, msg, state, label, w.percent, w.resetAt)
 		s.logger.Info("threshold alert fired", "provider", state.Provider, "window", label, "percent", w.percent)
 		s.emit(Event{
 			Kind:     EventThreshold,
@@ -679,6 +684,42 @@ func (s *Service) checkThresholds(state domain.ProviderState) {
 			Message:  fmt.Sprintf("%s: %s", state.DisplayName, msg),
 		})
 	}
+}
+
+// fireWebhook posts a threshold alert to the configured webhook endpoint, if
+// any. It runs on its own goroutine with a bounded timeout so a slow or
+// unreachable endpoint never delays the polling loop; failures are logged at
+// debug level, the same "best-effort" treatment as the OS notification.
+func (s *Service) fireWebhook(title, msg string, state domain.ProviderState, label string, percent float64, resetAt time.Time) {
+	rawURL, err := s.creds.Get(credentials.WebhookAccount)
+	if err != nil || rawURL == "" {
+		return
+	}
+
+	var resetStr string
+	if !resetAt.IsZero() {
+		resetStr = resetAt.Format(time.RFC3339)
+	}
+	payload := webhook.Payload{
+		Content: fmt.Sprintf("**%s**\n%s", title, msg),
+		Text:    fmt.Sprintf("*%s*\n%s", title, msg),
+		Karina: webhook.Details{
+			Provider:        string(state.Provider),
+			ProviderDisplay: state.DisplayName,
+			Window:          label,
+			Percent:         percent,
+			ResetAt:         resetStr,
+			FiredAt:         time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := webhook.Send(ctx, s.http, rawURL, payload); err != nil {
+			s.logger.Debug("webhook notify failed", "error", err.Error())
+		}
+	}()
 }
 
 func parseTime(s string) time.Time {
@@ -937,6 +978,48 @@ func (s *Service) SetAlertThreshold(percent int) error {
 	return config.Save(s.cfgPath, s.cfg)
 }
 
+// SetWebhookURL stores (or, given an empty string, clears) the endpoint that
+// receives a POST whenever a usage threshold alert fires. The URL is kept in
+// the OS keyring rather than config.toml: anyone holding a Slack/Discord
+// webhook URL can post into that channel, so it deserves the same handling
+// as an API key.
+func (s *Service) SetWebhookURL(rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		if err := s.creds.Delete(credentials.WebhookAccount); err != nil && !errors.Is(err, credentials.ErrNotFound) {
+			return err
+		}
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("URL de webhook inválida: debe empezar con http:// o https://")
+	}
+	return s.creds.Save(credentials.WebhookAccount, rawURL)
+}
+
+// TestWebhook sends a sample alert to the configured webhook so the user can
+// confirm it actually reaches the destination channel before relying on it.
+func (s *Service) TestWebhook() error {
+	rawURL, err := s.creds.Get(credentials.WebhookAccount)
+	if err != nil || rawURL == "" {
+		return errors.New("no hay ningún webhook configurado")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return webhook.Send(ctx, s.http, rawURL, webhook.Payload{
+		Content: "**Karina**\nEsto es una prueba. Si ves este mensaje, tu webhook está bien configurado.",
+		Text:    "*Karina*\nEsto es una prueba. Si ves este mensaje, tu webhook está bien configurado.",
+		Karina: webhook.Details{
+			Provider:        "test",
+			ProviderDisplay: "Karina",
+			Window:          "prueba",
+			Percent:         100,
+			FiredAt:         time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
 // CompleteOnboarding marks the onboarding as finished.
 func (s *Service) CompleteOnboarding() error {
 	s.cfg.OnboardingDone = true
@@ -950,6 +1033,8 @@ type ConfigSnapshot struct {
 	OnboardingDone         bool   `json:"onboarding_done"`
 	AlertsEnabled          bool   `json:"alerts_enabled"`
 	AlertThresholdPercent  int    `json:"alert_threshold_percent"`
+	WebhookConfigured      bool   `json:"webhook_configured"`
+	WebhookPreview         string `json:"webhook_preview"`
 	DataDir                string `json:"data_dir"`
 }
 
@@ -957,12 +1042,22 @@ type ConfigSnapshot struct {
 func (s *Service) Config() ConfigSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	var webhookConfigured bool
+	var webhookPreview string
+	if raw, err := s.creds.Get(credentials.WebhookAccount); err == nil && raw != "" {
+		webhookConfigured = true
+		webhookPreview = credentials.Preview(raw)
+	}
+
 	return ConfigSnapshot{
 		RefreshIntervalSeconds: s.cfg.RefreshIntervalSeconds,
 		StartWithSystem:        s.cfg.StartWithSystem,
 		OnboardingDone:         s.cfg.OnboardingDone,
 		AlertsEnabled:          s.cfg.AlertsEnabled,
 		AlertThresholdPercent:  s.cfg.Threshold(),
+		WebhookConfigured:      webhookConfigured,
+		WebhookPreview:         webhookPreview,
 		DataDir:                s.baseDir,
 	}
 }

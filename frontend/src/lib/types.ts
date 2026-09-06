@@ -106,6 +106,8 @@ export interface ConfigSnapshot {
   onboarding_done: boolean;
   alerts_enabled: boolean;
   alert_threshold_percent: number;
+  webhook_configured: boolean;
+  webhook_preview: string;
   data_dir: string;
 }
 

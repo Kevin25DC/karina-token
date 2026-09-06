@@ -10,6 +10,7 @@ import {
   Power,
   RefreshCw,
   ShieldCheck,
+  Webhook,
 } from 'lucide-react';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { api } from '@/lib/api';
@@ -55,6 +56,9 @@ export function Settings() {
   const [savingThreshold, setSavingThreshold] = useState(false);
   const [checking, setChecking] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
 
   async function checkUpdate() {
     setChecking(true);
@@ -123,6 +127,45 @@ export function Settings() {
       notify('error', (e as Error).message);
     } finally {
       setSavingThreshold(false);
+    }
+  }
+
+  async function saveWebhook() {
+    setSavingWebhook(true);
+    try {
+      await api.setWebhookUrl(webhookUrl);
+      setWebhookUrl('');
+      await reload();
+      notify('success', 'Webhook guardado');
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setSavingWebhook(false);
+    }
+  }
+
+  async function clearWebhook() {
+    setSavingWebhook(true);
+    try {
+      await api.setWebhookUrl('');
+      await reload();
+      notify('success', 'Webhook eliminado');
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setSavingWebhook(false);
+    }
+  }
+
+  async function runWebhookTest() {
+    setTestingWebhook(true);
+    try {
+      await api.testWebhook();
+      notify('success', 'Prueba enviada: revisa el canal del webhook');
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setTestingWebhook(false);
     }
   }
 
@@ -239,6 +282,61 @@ export function Settings() {
                 ))}
               </div>
             </Row>
+            <div className="p-4">
+              <div className="flex items-start gap-3.5">
+                <div className="mt-0.5 text-zinc-500">
+                  <Webhook className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-zinc-100">Webhook</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+                    Envía un POST (compatible con Slack y Discord) al cruzar el umbral, además del
+                    aviso dentro de la app.
+                  </p>
+                  {config?.webhook_configured ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-400">
+                        {config.webhook_preview}
+                      </span>
+                      <Button
+                        className="h-8 px-3 text-xs"
+                        loading={testingWebhook}
+                        onClick={() => void runWebhookTest()}
+                      >
+                        Probar
+                      </Button>
+                      <Button
+                        className="h-8 px-3 text-xs"
+                        loading={savingWebhook}
+                        onClick={() => void clearWebhook()}
+                      >
+                        Quitar
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <input
+                        type="url"
+                        value={webhookUrl}
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        placeholder="https://discord.com/api/webhooks/… o https://hooks.slack.com/…"
+                        spellCheck={false}
+                        autoComplete="off"
+                        className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
+                      />
+                      <Button
+                        className="h-8 px-3 text-xs"
+                        loading={savingWebhook}
+                        disabled={!webhookUrl.trim()}
+                        onClick={() => void saveWebhook()}
+                      >
+                        Guardar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </Card>
         </section>
 

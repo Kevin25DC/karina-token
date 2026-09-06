@@ -99,6 +99,14 @@ export function SetAlertThreshold(percent) {
   return call('SetAlertThreshold', [percent]);
 }
 
+export function SetWebhookURL(url) {
+  return call('SetWebhookURL', [url]);
+}
+
+export function TestWebhook() {
+  return call('TestWebhook', []);
+}
+
 export function CompleteOnboarding() {
   return call('CompleteOnboarding', []);
 }

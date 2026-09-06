@@ -75,6 +75,8 @@ export const api = {
     call<void>(() => App.SetAlertsEnabled(enabled)),
   setAlertThreshold: (percent: number) =>
     call<void>(() => App.SetAlertThreshold(percent)),
+  setWebhookUrl: (url: string) => call<void>(() => App.SetWebhookURL(url)),
+  testWebhook: () => call<void>(() => App.TestWebhook()),
   completeOnboarding: () => call<void>(() => App.CompleteOnboarding()),
   enterWidgetMode: () => call<void>(() => App.EnterWidgetMode()),
   exitWidgetMode: () => call<void>(() => App.ExitWidgetMode()),

@@ -377,6 +377,17 @@ func (a *App) SetAlertThreshold(percent int) error {
 	return a.svc.SetAlertThreshold(percent)
 }
 
+// SetWebhookURL stores (or, given an empty string, clears) the webhook that
+// receives a POST whenever a usage threshold alert fires.
+func (a *App) SetWebhookURL(url string) error {
+	return a.svc.SetWebhookURL(url)
+}
+
+// TestWebhook sends a sample alert to the configured webhook.
+func (a *App) TestWebhook() error {
+	return a.svc.TestWebhook()
+}
+
 // CompleteOnboarding marks the first-run onboarding as finished.
 func (a *App) CompleteOnboarding() error {
 	return a.svc.CompleteOnboarding()
