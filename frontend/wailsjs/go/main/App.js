@@ -49,6 +49,10 @@ export function SetProviderEnabled(provider, enabled) {
   return window['go']['main']['App']['SetProviderEnabled'](provider, enabled);
 }
 
+export function SetManualUsage(provider, used, limit, window) {
+  return window['go']['main']['App']['SetManualUsage'](provider, used, limit, window);
+}
+
 export function SetRefreshInterval(seconds) {
   return window['go']['main']['App']['SetRefreshInterval'](seconds);
 }

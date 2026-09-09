@@ -57,6 +57,7 @@ type ProviderMeta struct {
 	Brand        string       `json:"brand"` // UI accent key, e.g. "amber"
 	Capabilities []Capability `json:"capabilities"`
 	Demo         bool         `json:"demo,omitempty"`
+	Manual       bool         `json:"manual,omitempty"` // usage entered by user, no API
 
 	// Runtime fields.
 	Enabled bool `json:"enabled"`

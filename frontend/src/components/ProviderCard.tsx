@@ -56,6 +56,7 @@ export function ProviderCard({
               {meta.name}
             </h3>
             {meta.demo && <Badge className="text-violet-300">Demo</Badge>}
+            {meta.manual && <Badge className="text-amber-300">Manual</Badge>}
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs">
             <span className={cn('inline-flex items-center gap-1.5', sc.text)}>

@@ -10,6 +10,7 @@ export interface ProviderMeta {
   brand: string;
   capabilities: Capability[];
   demo?: boolean;
+  manual?: boolean;
   enabled: boolean;
   has_key: boolean;
 }

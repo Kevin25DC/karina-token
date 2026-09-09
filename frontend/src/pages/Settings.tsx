@@ -379,7 +379,7 @@ function ProviderSetting({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold text-zinc-100">{meta.name}</p>
-          {meta.has_key && meta.enabled && (
+          {meta.enabled && (meta.has_key || meta.manual) && (
             <span className={cn('inline-flex items-center gap-1.5 text-[11px]', sc.text)}>
               <span className={cn('h-1.5 w-1.5 rounded-full', sc.dot)} /> {statusText}
             </span>
@@ -414,11 +414,17 @@ function ProviderSetting({
           </a>
         )}
         <Button
-          variant={meta.has_key ? 'secondary' : 'primary'}
+          variant={meta.has_key || meta.enabled ? 'secondary' : 'primary'}
           onClick={onManage}
           className="h-9"
         >
-          {meta.has_key ? 'Administrar' : 'Conectar'}
+          {meta.manual
+            ? meta.enabled
+              ? 'Actualizar lectura'
+              : 'Configurar lectura'
+            : meta.has_key
+              ? 'Administrar'
+              : 'Conectar'}
         </Button>
       </div>
     </Card>

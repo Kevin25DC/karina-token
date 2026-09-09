@@ -63,9 +63,18 @@ var catalog = []domain.ProviderMeta{
 		Demo:         true,
 		Capabilities: []domain.Capability{domain.CapTokenUsage},
 	},
+	{
+		ID:           "claude_subscription",
+		Name:         "Claude Suscripción (Pro/Max)",
+		Description:  "Uso de tu suscripción claude.ai — lectura manual",
+		DocsURL:      "https://support.claude.com",
+		Brand:        "amber",
+		Manual:       true,
+		Capabilities: []domain.Capability{domain.CapTokenUsage},
+	},
 }
 
-var order = []domain.ProviderID{"anthropic", "openai", "gemini", "deepseek", "demo"}
+var order = []domain.ProviderID{"anthropic", "openai", "gemini", "deepseek", "demo", "claude_subscription"}
 
 // Catalog returns the ordered, immutable provider catalog.
 func Catalog() []domain.ProviderMeta {
@@ -93,6 +102,15 @@ func Get(id domain.ProviderID) (domain.ProviderMeta, bool) {
 		}
 	}
 	return domain.ProviderMeta{}, false
+}
+
+// IsManual reports whether the provider has no real API and its usage is
+// entered by the user (e.g. Claude subscription).
+func IsManual(id domain.ProviderID) bool {
+	if m, ok := Get(id); ok {
+		return m.Manual
+	}
+	return false
 }
 
 // New builds a fresh adapter for the given provider id.

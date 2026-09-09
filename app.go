@@ -261,6 +261,12 @@ func (a *App) SetProviderEnabled(provider string, enabled bool) error {
 	return a.svc.SetProviderEnabled(domain.ProviderID(provider), enabled)
 }
 
+// SetManualUsage stores a user-entered reading for a manual provider
+// (e.g. Claude subscription percentage shown in claude.ai).
+func (a *App) SetManualUsage(provider string, used int64, limit int64, window string) error {
+	return a.svc.SetManualUsage(domain.ProviderID(provider), used, limit, window)
+}
+
 // SetRefreshInterval updates the polling cadence (seconds).
 func (a *App) SetRefreshInterval(seconds int) error {
 	return a.svc.SetRefreshInterval(seconds)

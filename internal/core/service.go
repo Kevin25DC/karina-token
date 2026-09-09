@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -53,6 +54,15 @@ type Options struct {
 	Autostart       func(enabled bool) error
 }
 
+// manualReading is a user-entered usage reading for a manual provider
+// (e.g. Claude subscription percentage shown in claude.ai).
+type manualReading struct {
+	Used      int64     `json:"used"`
+	Limit     int64     `json:"limit"`
+	Window    string    `json:"window"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Service is the application core.
 type Service struct {
 	logger *slog.Logger
@@ -75,6 +85,9 @@ type Service struct {
 	backoff  map[domain.ProviderID]time.Duration
 	lastSnap map[domain.ProviderID]time.Time
 	lastPt   map[domain.ProviderID]*domain.HistoryPoint
+
+	manualPath string
+	manual     map[domain.ProviderID]manualReading
 
 	listeners map[int]func(Event)
 	nextID    int
@@ -100,6 +113,7 @@ func New(logger *slog.Logger) *Service {
 		backoff:   map[domain.ProviderID]time.Duration{},
 		lastSnap:  map[domain.ProviderID]time.Time{},
 		lastPt:    map[domain.ProviderID]*domain.HistoryPoint{},
+		manual:    map[domain.ProviderID]manualReading{},
 		listeners: map[int]func(Event){},
 	}
 }
@@ -151,7 +165,104 @@ func (s *Service) Open(opts Options) error {
 			}
 		}
 	}
+
+	// Manual providers (e.g. Claude subscription) have no adapter: restore
+	// their last user-entered readings.
+	s.manualPath = filepath.Join(s.baseDir, "manual.json")
+	if err := s.loadManualLocked(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for id, r := range s.manual {
+		s.setStatus(s.manualState(id, r))
+	}
+	s.mu.Unlock()
+
 	s.logger.Info("service opened", "dir", s.baseDir, "interval", cfg.RefreshInterval().String())
+	return nil
+}
+
+func (s *Service) loadManualLocked() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := os.ReadFile(s.manualPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := json.Unmarshal(data, &s.manual); err != nil {
+		return fmt.Errorf("parse manual readings: %w", err)
+	}
+	if s.manual == nil {
+		s.manual = map[domain.ProviderID]manualReading{}
+	}
+	return nil
+}
+
+func (s *Service) saveManualLocked() error {
+	data, err := json.Marshal(s.manual)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.manualPath, data, 0o600)
+}
+
+func (s *Service) manualState(id domain.ProviderID, r manualReading) domain.ProviderState {
+	m, _ := providers.Get(id)
+	if r.Limit <= 0 {
+		r.Limit = 100
+	}
+	return domain.ProviderState{
+		Provider:        id,
+		DisplayName:     m.Name,
+		Status:          domain.StatusConnected,
+		StatusMsg:       "Lectura manual",
+		UpdatedAt:       r.UpdatedAt,
+		Capabilities:    []domain.Capability{domain.CapTokenUsage},
+		UsageAvailable:  true,
+		UsedTokens:      r.Used,
+		LimitTokens:     r.Limit,
+		RemainingTokens: domain.Remaining(r.Used, r.Limit),
+		UsageWindow:     r.Window,
+		Note:            "Lectura introducida manualmente desde claude.ai (no existe API oficial para la suscripción). Actualízala cuando cambie tu uso.",
+	}
+}
+
+// SetManualUsage stores a user-entered reading for a manual provider (used
+// is expressed in the same unit as limit, e.g. percentage when limit = 100).
+func (s *Service) SetManualUsage(id domain.ProviderID, used, limit int64, window string) error {
+	if !providers.IsManual(id) {
+		return fmt.Errorf("el proveedor %q no admite lectura manual", id)
+	}
+	if used < 0 {
+		used = 0
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if used > limit {
+		used = limit
+	}
+	r := manualReading{Used: used, Limit: limit, Window: window, UpdatedAt: time.Now()}
+
+	s.mu.Lock()
+	s.manual[id] = r
+	err := s.saveManualLocked()
+	state := s.manualState(id, r)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+
+	s.cfg.SetEnabled(string(id), true)
+	_ = config.Save(s.cfgPath, s.cfg)
+
+	s.setStatus(state)
+	s.persistSnapshot(id, state)
+	s.logger.Info("manual usage saved", "provider", id, "used", used, "limit", limit)
+	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(state)})
 	return nil
 }
 
@@ -270,6 +381,10 @@ func (s *Service) enabledReadyIDsLocked() []domain.ProviderID {
 	var out []domain.ProviderID
 	for id, e := range s.cfg.Providers {
 		if !e.Enabled {
+			continue
+		}
+		// Manual providers have no adapter to poll.
+		if providers.IsManual(domain.ProviderID(id)) {
 			continue
 		}
 		if s.hasCredentialLocked(domain.ProviderID(id)) {
@@ -466,6 +581,10 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 	delete(s.lastPt, id)
 	delete(s.nextTry, id)
 	delete(s.backoff, id)
+	if providers.IsManual(id) {
+		delete(s.manual, id)
+		_ = s.saveManualLocked()
+	}
 	s.mu.Unlock()
 	s.logger.Info("provider removed", "provider", id)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id})

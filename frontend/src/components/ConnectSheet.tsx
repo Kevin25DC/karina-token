@@ -77,6 +77,10 @@ function SheetBody({
 
   const hint = KEY_HINTS[meta.id] ?? KEY_HINTS.demo;
 
+  if (meta.manual) {
+    return <ManualBody meta={meta} onClose={onClose} onDone={onDone} notify={notify} />;
+  }
+
   async function test() {
     setTesting(true);
     setResult(null);
@@ -238,6 +242,118 @@ function SheetBody({
             </Button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ManualBody lets the user record the usage percentage shown by claude.ai for
+// their Pro/Max subscription (there is no official API for it).
+const MANUAL_WINDOWS = [
+  'Ventana de 5 horas (sesión)',
+  'Ventana semanal (7 días)',
+];
+
+function ManualBody({
+  meta,
+  onClose,
+  onDone,
+  notify,
+}: {
+  meta: ProviderMeta;
+  onClose: () => void;
+  onDone: () => Promise<void> | void;
+  notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
+}) {
+  const states = useStore((s) => s.states);
+  const existing = states[meta.id];
+  const initial = existing?.usage_available
+    ? Math.min(100, existing.used_tokens)
+    : 50;
+
+  const [pct, setPct] = useState<number>(initial);
+  const [windowLabel, setWindowLabel] = useState<string>(
+    existing?.usage_window || MANUAL_WINDOWS[0],
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.setManualUsage(meta.id, Math.round(pct), 100, windowLabel);
+      await onDone();
+      notify('success', 'Lectura guardada en el historial');
+      onClose();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+        <ProviderMark id={meta.id} brand={meta.brand} size="md" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-zinc-100">{meta.name}</p>
+          <p className="text-xs text-zinc-500">{meta.description}</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.06] p-3.5 text-xs leading-relaxed text-amber-100/80">
+        claude.ai <strong>no expone una API oficial</strong> para leer el uso de la
+        suscripción. Introduce aquí el porcentaje que ves en tu cuenta de claude.ai
+        (Ajustes → Uso). Karina lo registra como lectura manual y lo guarda en el
+        historial. No toca tu sesión del navegador.
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+          Ventana de uso
+        </label>
+        <select
+          value={windowLabel}
+          onChange={(e) => setWindowLabel(e.target.value)}
+          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm text-zinc-100 outline-none transition-colors focus:border-white/20"
+        >
+          {MANUAL_WINDOWS.map((w) => (
+            <option key={w} value={w} className="bg-ink-800">
+              {w}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-end justify-between">
+          <label className="text-xs font-medium text-zinc-400">Uso actual</label>
+          <p className="font-mono text-2xl font-semibold text-zinc-50">
+            {Math.round(pct)}
+            <span className="text-base text-zinc-500">%</span>
+          </p>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={pct}
+          onChange={(e) => setPct(Number(e.target.value))}
+          className="w-full accent-violet-500"
+        />
+        <p className="mt-1 text-xs text-zinc-500">
+          Queda {100 - Math.round(pct)}% de la ventana ({windowLabel.toLowerCase()})
+        </p>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
+        <Button variant="ghost" onClick={onClose} className="h-9 text-xs">
+          Cancelar
+        </Button>
+        <Button onClick={() => void save()} loading={saving} className="h-9">
+          <Check className="h-3.5 w-3.5" /> Guardar lectura
+        </Button>
       </div>
     </div>
   );
