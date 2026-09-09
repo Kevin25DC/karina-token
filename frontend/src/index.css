@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  background: transparent;
+}
+
+#root {
+  position: relative;
+}
+
+body {
+  @apply text-zinc-200 antialiased font-sans;
+  font-feature-settings: 'cv11', 'ss01';
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Frameless window surface: leaves a translucent margin so the window has
+   rounded, "floating" corners over the desktop (acrylic behind). */
+.surface-frame {
+  position: absolute;
+  inset: 8px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: 0 24px 70px -12px rgb(0 0 0 / 0.55);
+  background: #0b0b0f;
+}
+
+/* Custom title bar drag region (Wails frameless) */
+.titlebar {
+  --wails-draggable: drag;
+}
+.titlebar-no-drag {
+  --wails-draggable: no-drag;
+}
+
+::selection {
+  background: rgb(255 255 255 / 0.18);
+}
+
+/* Thin, unobtrusive scrollbars */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.16);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@layer components {
+  .glass {
+    @apply border border-white/[0.06] bg-white/[0.025];
+  }
+  .card-hover {
+    @apply transition-colors duration-200 hover:bg-white/[0.04] hover:border-white/[0.1];
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    rgb(255 255 255 / 0.04) 40%,
+    rgb(255 255 255 / 0.1) 50%,
+    rgb(255 255 255 / 0.04) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'] {
+  user-select: text;
+}
+
+button {
+  -webkit-user-drag: none;
+}

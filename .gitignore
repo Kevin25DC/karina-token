@@ -1,0 +1,27 @@
+# Binaries
+build/bin/
+build/*.exe
+*.test
+
+# Go
+*.out
+coverage.*
+
+# Node
+node_modules/
+frontend/dist/
+
+# Paquetes de distribución (binarios de release)
+dist/
+
+# Logs / temp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets must never be committed
+*.pem
+.env
+.env.*
