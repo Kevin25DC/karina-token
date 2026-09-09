@@ -9,9 +9,11 @@ import type {
   ProviderMeta,
   ProviderState,
   TestResult,
+  UpdateInfo,
 } from '../../../src/lib/types';
 
 export function GetAppInfo(): Promise<AppInfo>;
+export function CheckForUpdate(): Promise<UpdateInfo>;
 export function RefreshNow(): Promise<void>;
 export function ListProviders(): Promise<ProviderMeta[]>;
 export function States(): Promise<ProviderState[]>;

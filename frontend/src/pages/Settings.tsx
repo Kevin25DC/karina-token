@@ -1,17 +1,20 @@
 import { useState, type ReactNode } from 'react';
 import {
+  Download,
   ExternalLink,
   Folder,
   Gauge,
   KeyRound,
   PictureInPicture2,
   Power,
+  RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
-import type { ProviderMeta, ProviderState } from '@/lib/types';
+import type { ProviderMeta, ProviderState, UpdateInfo } from '@/lib/types';
 import { Badge, Button, Card } from '@/components/primitives';
 import { Logo } from '@/components/Logo';
 import { ProviderMark } from '@/components/ProviderMark';
@@ -47,6 +50,27 @@ export function Settings() {
   const states = useStore((s) => s.states);
 
   const [savingInterval, setSavingInterval] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+
+  async function checkUpdate() {
+    setChecking(true);
+    try {
+      setUpdate(await api.checkForUpdate());
+    } catch (e) {
+      setUpdate({
+        current: info?.version ?? '',
+        latest: '',
+        has_update: false,
+        release_url: '',
+        download_url: '',
+        notes: '',
+        error: (e as Error).message,
+      });
+    } finally {
+      setChecking(false);
+    }
+  }
 
   async function changeInterval(seconds: number) {
     setSavingInterval(true);
@@ -146,6 +170,78 @@ export function Settings() {
                 {config?.data_dir}
               </span>
             </Row>
+          </Card>
+        </section>
+
+        {/* Actualizaciones */}
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Actualizaciones
+          </h2>
+          <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div className="flex min-w-0 items-start gap-3.5">
+              <div className="mt-0.5 rounded-xl border border-white/[0.08] bg-white/[0.04] p-2 text-zinc-400">
+                <Download className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-100">
+                  Versión instalada: v{info?.version}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+                  Karina revisa GitHub Releases para saber si hay una versión nueva.
+                </p>
+                {update && update.error && (
+                  <p className="mt-1.5 text-xs text-rose-300">
+                    No se pudo consultar: {update.error}
+                  </p>
+                )}
+                {update && !update.error && !update.has_update && (
+                  <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-emerald-300">
+                    <ShieldCheck className="h-3.5 w-3.5" /> Estás al día (v
+                    {update.latest || info?.version}).
+                  </p>
+                )}
+                {update && update.has_update && (
+                  <div className="mt-1.5 text-xs text-zinc-300">
+                    <p className="font-medium text-sky-300">
+                      Hay una versión nueva: v{update.latest}
+                    </p>
+                    <p className="mt-0.5 line-clamp-2 max-w-md text-zinc-500">{update.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                className="h-9"
+                loading={checking}
+                onClick={() => void checkUpdate()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Buscar actualizaciones
+              </Button>
+              {update?.has_update && (
+                <>
+                  {update.download_url && (
+                    <Button
+                      variant="secondary"
+                      className="h-9"
+                      onClick={() => BrowserOpenURL(update.download_url as string)}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Descargar
+                    </Button>
+                  )}
+                  {update.release_url && (
+                    <Button
+                      variant="ghost"
+                      className="h-9"
+                      onClick={() => BrowserOpenURL(update.release_url as string)}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> Ver en GitHub
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
           </Card>
         </section>
 

@@ -113,3 +113,13 @@ export interface AppInfo {
   name: string;
   version: string;
 }
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  has_update: boolean;
+  release_url: string;
+  download_url: string;
+  notes: string;
+  error?: string;
+}

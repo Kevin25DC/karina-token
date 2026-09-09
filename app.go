@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"karina/internal/core"
 	"karina/internal/domain"
 	"karina/internal/platform"
+	"karina/internal/updater"
 )
 
 // Widget (ventana compacta) geometry.
@@ -105,6 +107,20 @@ type AppInfo struct {
 // GetAppInfo returns basic application information.
 func (a *App) GetAppInfo() AppInfo {
 	return AppInfo{Name: appName, Version: appVersion}
+}
+
+// CheckForUpdate asks GitHub Releases whether a newer version exists.
+func (a *App) CheckForUpdate() updater.Info {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	rel, err := updater.NewChecker().Latest(ctx)
+	if err != nil {
+		a.log.Info("update check failed", "error", err.Error())
+		return updater.Info{Current: appVersion, Error: err.Error()}
+	}
+	info := updater.Check(appVersion, rel)
+	a.log.Info("update check done", "latest", info.Latest, "has_update", info.HasUpdate)
+	return info
 }
 
 // EnterWidgetMode shrinks the window into a compact, always-on-top widget

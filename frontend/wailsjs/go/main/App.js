@@ -9,6 +9,10 @@ export function GetAppInfo() {
   return window['go']['main']['App']['GetAppInfo']();
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function RefreshNow() {
   return window['go']['main']['App']['RefreshNow']();
 }

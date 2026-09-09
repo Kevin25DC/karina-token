@@ -12,6 +12,7 @@ import type {
   ProviderMeta,
   ProviderState,
   TestResult,
+  UpdateInfo,
 } from './types';
 
 async function call<T>(fn: () => Promise<T>): Promise<T> {
@@ -25,6 +26,7 @@ async function call<T>(fn: () => Promise<T>): Promise<T> {
 
 export const api = {
   info: () => call<AppInfo>(() => App.GetAppInfo()),
+  checkForUpdate: () => call<UpdateInfo>(() => App.CheckForUpdate()),
   listProviders: () => call<ProviderMeta[]>(() => App.ListProviders()),
   states: () => call<ProviderState[]>(() => App.States()),
   config: () => call<ConfigSnapshot>(() => App.Config()),
