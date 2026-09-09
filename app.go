@@ -9,6 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"karina/internal/claudesub"
 	"karina/internal/core"
 	"karina/internal/domain"
 	"karina/internal/platform"
@@ -265,6 +266,12 @@ func (a *App) SetProviderEnabled(provider string, enabled bool) error {
 // (e.g. Claude subscription percentage shown in claude.ai).
 func (a *App) SetManualUsage(provider string, used int64, limit int64, window string) error {
 	return a.svc.SetManualUsage(domain.ProviderID(provider), used, limit, window)
+}
+
+// ExperimentalClaudeSubscription attempts an automated reading of the
+// claude.ai subscription usage (experimental, local Claude Code token).
+func (a *App) ExperimentalClaudeSubscription() claudesub.Result {
+	return a.svc.ExperimentalClaudeSubscription()
 }
 
 // SetRefreshInterval updates the polling cadence (seconds).

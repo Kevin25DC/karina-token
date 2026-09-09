@@ -124,3 +124,13 @@ export interface UpdateInfo {
   notes: string;
   error?: string;
 }
+
+export interface ExperimentalSubRead {
+  found: boolean;
+  source: string;
+  window: string;
+  used: number;
+  limit: number;
+  percent: number;
+  error?: string;
+}

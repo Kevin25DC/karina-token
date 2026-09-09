@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"karina/internal/claudesub"
 	"karina/internal/config"
 	"karina/internal/credentials"
 	"karina/internal/domain"
@@ -589,6 +590,18 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 	s.logger.Info("provider removed", "provider", id)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id})
 	return nil
+}
+
+// ExperimentalClaudeSubscription attempts an automated reading of the
+// claude.ai subscription usage by reusing the local Claude Code OAuth token.
+// Experimental: undocumented endpoint, use at your own risk.
+func (s *Service) ExperimentalClaudeSubscription() claudesub.Result {
+	r := &claudesub.Reader{HTTP: s.http}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	res := r.Read(ctx)
+	s.logger.Info("experimental claude subscription read", "found", res.Found, "window", res.Window)
+	return res
 }
 
 // SetProviderEnabled toggles a provider without touching credentials.

@@ -6,6 +6,7 @@ import type {
   AppInfo,
   ConfigSnapshot,
   EventPayload,
+  ExperimentalSubRead,
   HistoryResult,
   HistorySpan,
   ProviderID,
@@ -42,6 +43,8 @@ export const api = {
     call<void>(() => App.SetProviderEnabled(provider, enabled)),
   setManualUsage: (provider: ProviderID, used: number, limit: number, window: string) =>
     call<void>(() => App.SetManualUsage(provider, used, limit, window)),
+  experimentalClaudeSubscription: () =>
+    call<ExperimentalSubRead>(() => App.ExperimentalClaudeSubscription()),
   setRefreshInterval: (seconds: number) =>
     call<void>(() => App.SetRefreshInterval(seconds)),
   setStartWithSystem: (enabled: boolean) =>

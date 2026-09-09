@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ExternalLink, KeyRound, Plug, Unplug } from 'lucide-react';
+import { Check, ExternalLink, KeyRound, Plug, Sparkles, Unplug } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import type { ProviderMeta, ProviderState } from '@/lib/types';
@@ -276,6 +276,36 @@ function ManualBody({
     existing?.usage_window || MANUAL_WINDOWS[0],
   );
   const [saving, setSaving] = useState(false);
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
+  const [autoErr, setAutoErr] = useState<string | null>(null);
+
+  async function tryAuto() {
+    setAutoLoading(true);
+    setAutoMsg(null);
+    setAutoErr(null);
+    try {
+      const res = await api.experimentalClaudeSubscription();
+      if (res.found) {
+        const used = Math.max(0, Math.min(100, Math.round(res.used)));
+        setPct(used);
+        if (res.window) {
+          const w = String(res.window);
+          if (/7/.test(w)) setWindowLabel(MANUAL_WINDOWS[1]);
+          else setWindowLabel(MANUAL_WINDOWS[0]);
+        }
+        setAutoMsg(
+          `Lectura automática obtenida: ${used}% (ventana ${res.window || '?'}, origen: ${res.source}). Revisa y guarda.`,
+        );
+      } else {
+        setAutoErr(res.error || 'No se pudo leer automáticamente.');
+      }
+    } catch (e) {
+      setAutoErr((e as Error).message);
+    } finally {
+      setAutoLoading(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -306,6 +336,33 @@ function ManualBody({
         suscripción. Introduce aquí el porcentaje que ves en tu cuenta de claude.ai
         (Ajustes → Uso). Karina lo registra como lectura manual y lo guarda en el
         historial. No toca tu sesión del navegador.
+      </div>
+
+      <div className="rounded-xl border border-violet-400/15 bg-violet-500/[0.06] p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium text-violet-100/90">
+            Lectura automática (experimental)
+          </p>
+          <Button
+            variant="secondary"
+            className="h-8 px-3 text-xs"
+            loading={autoLoading}
+            onClick={() => void tryAuto()}
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Probar con Claude Code
+          </Button>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-violet-100/60">
+          Experimental: reutiliza la sesión de Claude Code en este equipo
+          (requiere haber iniciado sesión una vez con <code className="font-mono">claude /login</code>).
+          Endpoint no oficial: puede fallar o cambiar; úsalo bajo tu responsabilidad.
+        </p>
+        {autoMsg && (
+          <p className="mt-2 text-[11px] font-medium text-emerald-300">{autoMsg}</p>
+        )}
+        {autoErr && (
+          <p className="mt-2 text-[11px] text-amber-300">{autoErr}</p>
+        )}
       </div>
 
       <div>

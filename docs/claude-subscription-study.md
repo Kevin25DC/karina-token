@@ -62,6 +62,19 @@ la cuenta del usuario.** Por eso:
   - guarda las lecturas en su **historial local** (con gráficos como cualquier proveedor).
 - No llama a ningún endpoint interno ni toca credenciales del navegador.
 
+### Prototipo experimental añadido (decisión explícita del autor)
+- Botón **“Probar con Claude Code (experimental)”** dentro de Claude Suscripción:
+  - localiza el token OAuth que **Claude Code ya guarda** en
+    `~/.claude/.credentials.json` (o la variable `KARINA_CLAUDE_TOKEN`),
+  - llama al endpoint **no oficial** `GET https://api.anthropic.com/api/oauth/usage`
+    con ese token, solo hacia Anthropic,
+  - si la respuesta se interpreta, rellena el medidor automáticamente para que el
+    usuario confirme y guarde.
+- No almacena el token; se lee en el momento y jamás se registra en logs.
+- Riesgos asumidos y avisados en la propia UI: endpoint no documentado (puede
+  romperse), y uso del OAuth de suscripción fuera de apps nativas de Anthropic
+  puede contravenir los términos (enforcement/baneos reportados en 2026).
+
 ## Riesgos / pendientes
 - La lectura es **manual** (el usuario debe actualizarla; el dato vive en claude.ai).
 - Si en el futuro Anthropic publica una API oficial de uso para suscripciones,
