@@ -2,7 +2,9 @@
 
 import type {
   AppInfo,
+  ClaudeOAuthStart,
   ConfigSnapshot,
+  ExperimentalSubRead,
   HistoryResult,
   HistorySpan,
   ProviderID,
@@ -23,6 +25,16 @@ export function TestProvider(provider: ProviderID, key: string): Promise<TestRes
 export function SaveProviderKey(provider: ProviderID, key: string): Promise<void>;
 export function RemoveProvider(provider: ProviderID): Promise<void>;
 export function SetProviderEnabled(provider: ProviderID, enabled: boolean): Promise<void>;
+export function SetManualUsage(
+  provider: ProviderID,
+  used: number,
+  limit: number,
+  window: string,
+): Promise<void>;
+export function ExperimentalClaudeSubscription(token: string): Promise<ExperimentalSubRead>;
+export function ClaudeOAuthStart(): Promise<ClaudeOAuthStart>;
+export function ClaudeOAuthComplete(code: string): Promise<ExperimentalSubRead>;
+export function LogClientError(message: string, stack: string): Promise<void>;
 export function SetRefreshInterval(seconds: number): Promise<void>;
 export function SetStartWithSystem(enabled: boolean): Promise<void>;
 export function CompleteOnboarding(): Promise<void>;

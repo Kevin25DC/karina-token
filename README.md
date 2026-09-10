@@ -80,6 +80,7 @@ Investigado contra la documentación oficial actual. Karina **no inventa** métr
 | **OpenAI** | `GET /v1/models` | Solo con **Admin API key**: `GET /v1/organization/usage/completions` (últimos 30 días) | Sí — headers `x-ratelimit-*` | No para keys estándar |
 | **Google Gemini** | `GET /v1beta/models` (clave `AIza…`) | **No disponible** por API con API key (solo consola AI Studio / Vertex AI + Cloud Monitoring) | No legible (429 server-side) | No |
 | **DeepSeek** | `GET /models` | **No disponible** | No documentado | Sí — `GET /user/balance` (saldo monetario CNY/USD) |
+| **Claude Suscripción (Pro/Max)** | — | **Experimental**: reutiliza el OAuth de Claude Code (endpoint no oficial) para leer la ventana de 5 h y la semanal | — | — |
 | **Demo** | — | Simulado (solo desarrollo/preview) | — | — |
 
 Consecuencia honesta de esto:
@@ -196,3 +197,4 @@ con providers seleccionables y posición recordada. El core ya emite eventos suf
 - DeepSeek y Gemini no tienen endpoint de token usage.
 - El historial mide lo que Karina observa desde que se conecta el proveedor (snapshots locales),
   no consumo anterior a la instalación.
+- La lectura de la **suscripción de Claude** (Pro/Max) usa un **endpoint no oficial** y el OAuth de Claude Code: es **experimental**, puede romperse y contravenir los términos de Anthropic. Es opt-in y está avisado en la app.

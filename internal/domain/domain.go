@@ -57,6 +57,7 @@ type ProviderMeta struct {
 	Brand        string       `json:"brand"` // UI accent key, e.g. "amber"
 	Capabilities []Capability `json:"capabilities"`
 	Demo         bool         `json:"demo,omitempty"`
+	Manual       bool         `json:"manual,omitempty"` // usage entered by user, no API
 
 	// Runtime fields.
 	Enabled bool `json:"enabled"`
@@ -111,6 +112,17 @@ type Balance struct {
 	IsAvailable bool    `json:"is_available"`
 }
 
+// UsageWindow is one of possibly several usage windows a provider reports
+// (e.g. Claude subscription: 5-hour session and weekly limits).
+type UsageWindow struct {
+	Label     string    `json:"label"`
+	Used      int64     `json:"used"`
+	Limit     int64     `json:"limit"`
+	Remaining int64     `json:"remaining"`
+	Percent   float64   `json:"percent"`
+	ResetAt   time.Time `json:"reset_at,omitempty"`
+}
+
 // ProviderState is the snapshot of everything Karina knows about a single
 // provider at a point in time. Every field is real data or explicitly unset.
 type ProviderState struct {
@@ -131,6 +143,10 @@ type ProviderState struct {
 
 	RateLimit RateLimitInfo `json:"rate_limit"`
 	Balance   *Balance      `json:"balance,omitempty"`
+
+	// Windows holds additional per-window figures (e.g. Claude session 5h and
+	// weekly limits). Empty when the provider reports a single figure.
+	Windows []UsageWindow `json:"windows,omitempty"`
 
 	// Note is a human-readable, honest explanation of what the provider can
 	// and cannot report. Error carries the last failure message.

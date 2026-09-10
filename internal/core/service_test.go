@@ -55,7 +55,7 @@ func newTestService(t *testing.T, fakes map[string]*fakeProvider) *Service {
 		return nil, fmt.Errorf("no fake for %s", id)
 	}
 	s := New(nil)
-	if err := s.Open(Options{DataDir: dir, ProviderFactory: factory}); err != nil {
+	if err := s.Open(Options{DataDir: dir, ProviderFactory: factory, SkipManualAuto: true}); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(s.Close)
@@ -271,5 +271,51 @@ func TestHistoryDownsampling(t *testing.T) {
 		if hist.Points[i].At.Before(hist.Points[i-1].At) {
 			t.Fatal("points not ascending")
 		}
+	}
+}
+
+func TestSetManualUsage(t *testing.T) {
+	s := newTestService(t, map[string]*fakeProvider{})
+	if err := s.SetManualUsage("claude_subscription", 67, 100, "Ventana de 5 horas"); err != nil {
+		t.Fatalf("set manual: %v", err)
+	}
+	if !s.cfg.Enabled("claude_subscription") {
+		t.Fatal("manual provider should be enabled")
+	}
+	var found bool
+	for _, st := range s.States() {
+		if st.Provider == "claude_subscription" {
+			found = true
+			if !st.UsageAvailable || st.UsedTokens != 67 || st.LimitTokens != 100 {
+				t.Fatalf("state %+v", st)
+			}
+			if st.RemainingTokens != 33 {
+				t.Fatalf("remaining %d", st.RemainingTokens)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("manual provider missing from states")
+	}
+	hist, err := s.History("claude_subscription", domain.SpanToday)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hist.HasUsage || len(hist.Points) == 0 {
+		t.Fatalf("manual usage should be recorded in history: %+v", hist)
+	}
+}
+
+func TestManualProviderNotPolled(t *testing.T) {
+	s := newTestService(t, map[string]*fakeProvider{})
+	if err := s.SetManualUsage("claude_subscription", 30, 100, "semanal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.refreshCycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := s.currentState("claude_subscription")
+	if !st.UsageAvailable || st.UsedTokens != 30 {
+		t.Fatalf("manual state changed unexpectedly: %+v", st)
 	}
 }
