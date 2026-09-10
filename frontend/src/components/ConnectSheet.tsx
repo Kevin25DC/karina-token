@@ -277,7 +277,6 @@ function ManualBody({
   );
   const [saving, setSaving] = useState(false);
   const [autoLoading, setAutoLoading] = useState(false);
-  const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [autoErr, setAutoErr] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [oauthStarted, setOauthStarted] = useState(false);
@@ -293,6 +292,15 @@ function ManualBody({
       const w = String(res.window);
       setWindowLabel(/7/.test(w) ? MANUAL_WINDOWS[1] : MANUAL_WINDOWS[0]);
     }
+  }
+
+  // Persist a reading so the provider appears in Karina right away.
+  async function persistReading(used: number, windowLabelValue: string) {
+    const value = Math.max(0, Math.min(100, Math.round(used)));
+    await api.setManualUsage(meta.id, value, 100, windowLabelValue);
+    await onDone();
+    notify('success', `${meta.name} añadido a Karina · ${value}%`);
+    onClose();
   }
 
   async function startOAuth() {
@@ -317,9 +325,7 @@ function ManualBody({
       const res = await api.claudeOAuthComplete(oauthCode.trim());
       if (res.found) {
         applyRead({ used: res.used, window: res.window });
-        setOauthMsg(
-          `Login correcto. Uso: ${Math.round(res.used)}% (${res.window || '?'})${res.reset_at ? ` · se reinicia ${new Date(res.reset_at).toLocaleString('es-ES')}` : ''}. Revisa y guarda.`,
-        );
+        await persistReading(res.used, res.window || MANUAL_WINDOWS[0]);
       } else {
         setOauthErr(res.error || 'No se pudo leer el uso.');
       }
@@ -332,21 +338,12 @@ function ManualBody({
 
   async function tryAuto() {
     setAutoLoading(true);
-    setAutoMsg(null);
     setAutoErr(null);
     try {
       const res = await api.experimentalClaudeSubscription(token.trim());
       if (res.found) {
-        const used = Math.max(0, Math.min(100, Math.round(res.used)));
-        setPct(used);
-        if (res.window) {
-          const w = String(res.window);
-          if (/7/.test(w)) setWindowLabel(MANUAL_WINDOWS[1]);
-          else setWindowLabel(MANUAL_WINDOWS[0]);
-        }
-        setAutoMsg(
-          `Lectura automática obtenida: ${used}% (ventana ${res.window || '?'}, origen: ${res.source}). Revisa y guarda.`,
-        );
+        applyRead({ used: res.used, window: res.window });
+        await persistReading(res.used, res.window || MANUAL_WINDOWS[0]);
       } else {
         setAutoErr(res.error || 'No se pudo leer automáticamente.');
       }
@@ -459,9 +456,6 @@ function ManualBody({
           {oauthErr && <p className="mt-2 text-[11px] text-amber-300">{oauthErr}</p>}
         </div>
 
-        {autoMsg && (
-          <p className="mt-2 text-[11px] font-medium text-emerald-300">{autoMsg}</p>
-        )}
         {autoErr && (
           <p className="mt-2 text-[11px] text-amber-300">{autoErr}</p>
         )}
