@@ -279,13 +279,14 @@ function ManualBody({
   const [autoLoading, setAutoLoading] = useState(false);
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [autoErr, setAutoErr] = useState<string | null>(null);
+  const [token, setToken] = useState('');
 
   async function tryAuto() {
     setAutoLoading(true);
     setAutoMsg(null);
     setAutoErr(null);
     try {
-      const res = await api.experimentalClaudeSubscription();
+      const res = await api.experimentalClaudeSubscription(token.trim());
       if (res.found) {
         const used = Math.max(0, Math.min(100, Math.round(res.used)));
         setPct(used);
@@ -357,6 +358,15 @@ function ManualBody({
           (requiere haber iniciado sesión una vez con <code className="font-mono">claude /login</code>).
           Endpoint no oficial: puede fallar o cambiar; úsalo bajo tu responsabilidad.
         </p>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Opcional: pega aquí tu token OAuth (sk-ant-oat…)"
+          spellCheck={false}
+          autoComplete="off"
+          className="mt-2.5 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
+        />
         {autoMsg && (
           <p className="mt-2 text-[11px] font-medium text-emerald-300">{autoMsg}</p>
         )}

@@ -270,8 +270,9 @@ func (a *App) SetManualUsage(provider string, used int64, limit int64, window st
 
 // ExperimentalClaudeSubscription attempts an automated reading of the
 // claude.ai subscription usage (experimental, local Claude Code token).
-func (a *App) ExperimentalClaudeSubscription() claudesub.Result {
-	return a.svc.ExperimentalClaudeSubscription()
+// Pass an empty token to auto-detect it from Claude Code.
+func (a *App) ExperimentalClaudeSubscription(token string) claudesub.Result {
+	return a.svc.ExperimentalClaudeSubscription(token)
 }
 
 // SetRefreshInterval updates the polling cadence (seconds).

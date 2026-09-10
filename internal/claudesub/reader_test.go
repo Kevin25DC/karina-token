@@ -105,3 +105,13 @@ func TestReadHTTPErrorTolerated(t *testing.T) {
 		t.Fatal("expected error message")
 	}
 }
+
+func TestDiscoverNewClaudeAiOauthFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeCredentials(t, dir, `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abcdefghijklmnopqrstuvwxyz","refreshToken":"sk-ant-ort01-zzz"}}`)
+	r := &Reader{OverrideHome: dir}
+	tok, src, err := r.discoverToken()
+	if err != nil || tok != "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz" {
+		t.Fatalf("token=%q src=%q err=%v", tok, src, err)
+	}
+}

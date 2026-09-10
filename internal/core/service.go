@@ -594,9 +594,11 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 
 // ExperimentalClaudeSubscription attempts an automated reading of the
 // claude.ai subscription usage by reusing the local Claude Code OAuth token.
-// Experimental: undocumented endpoint, use at your own risk.
-func (s *Service) ExperimentalClaudeSubscription() claudesub.Result {
-	r := &claudesub.Reader{HTTP: s.http}
+// If token is non-empty it is used directly; otherwise Karina looks for the
+// token saved by Claude Code on this machine. Experimental: undocumented
+// endpoint, use at your own risk.
+func (s *Service) ExperimentalClaudeSubscription(token string) claudesub.Result {
+	r := &claudesub.Reader{HTTP: s.http, OverrideToken: token}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	res := r.Read(ctx)

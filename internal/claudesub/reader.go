@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zalando/go-keyring"
 )
 
 // usageURL is a var so tests can point it at an httptest server.
@@ -109,6 +111,13 @@ func (r *Reader) Read(ctx context.Context) Result {
 
 // discoverToken looks for the token Claude Code stores locally.
 func (r *Reader) discoverToken() (token, source string, err error) {
+	if tok := strings.TrimSpace(r.OverrideToken); tok != "" {
+		return tok, "token proporcionado", nil
+	}
+	if tok := strings.TrimSpace(os.Getenv("KARINA_CLAUDE_TOKEN")); tok != "" {
+		return tok, "variable de entorno KARINA_CLAUDE_TOKEN", nil
+	}
+
 	home := r.OverrideHome
 	if home == "" {
 		home, err = os.UserHomeDir()
@@ -116,22 +125,58 @@ func (r *Reader) discoverToken() (token, source string, err error) {
 			return "", "", err
 		}
 	}
-	if tok := strings.TrimSpace(r.OverrideToken); tok != "" {
-		return tok, "variable de entorno (test)", nil
-	}
-	if tok := strings.TrimSpace(os.Getenv("KARINA_CLAUDE_TOKEN")); tok != "" {
-		return tok, "variable de entorno KARINA_CLAUDE_TOKEN", nil
-	}
+	appData := os.Getenv("APPDATA")
+	configDir, _ := os.UserConfigDir()
 	candidates := []string{
 		filepath.Join(home, ".claude", ".credentials.json"),
 		filepath.Join(home, ".claude", "credentials.json"),
+		filepath.Join(home, ".claude", ".credentials"),
+		filepath.Join(configDir, "claude", ".credentials.json"),
+		filepath.Join(configDir, "Claude", ".credentials.json"),
+	}
+	if appData != "" {
+		candidates = append(candidates,
+			filepath.Join(appData, "claude", ".credentials.json"),
+			filepath.Join(appData, "Claude", ".credentials.json"),
+		)
 	}
 	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
 		if tok := readTokenFile(p); tok != "" {
 			return tok, p, nil
 		}
 	}
+
+	// Windows Credential Manager / macOS Keychain / Secret Service.
+	if tok := readFromKeyring(); tok != "" {
+		return tok, "almacén de credenciales del sistema", nil
+	}
 	return "", "", nil
+}
+
+func readFromKeyring() string {
+	services := []string{"Claude Code-credentials", "Claude Code", "claude-code", "claude.ai"}
+	accounts := []string{"", "claude", "Claude Code"}
+	for _, svc := range services {
+		for _, acc := range accounts {
+			secret, err := keyring.Get(svc, acc)
+			if err != nil || secret == "" {
+				continue
+			}
+			var m map[string]any
+			if json.Unmarshal([]byte(secret), &m) == nil {
+				if tok := findToken(m, 0); tok != "" {
+					return tok
+				}
+			}
+			if looksLikeToken(secret) {
+				return strings.TrimSpace(secret)
+			}
+		}
+	}
+	return ""
 }
 
 func readTokenFile(path string) string {
@@ -146,7 +191,17 @@ func readTokenFile(path string) string {
 	return findToken(m, 0)
 }
 
-// findToken does a bounded DFS looking for the first "token" string value.
+// tokenKeys are the JSON field names Claude Code has used across versions.
+var tokenKeys = map[string]bool{
+	"token":         true,
+	"accessToken":   true,
+	"access_token":  true,
+	"oauthToken":    true,
+	"oauth_token":   true,
+	"claudeAiOauth": true,
+}
+
+// findToken does a bounded DFS looking for a token-like string value.
 func findToken(v any, depth int) string {
 	if depth > 6 {
 		return ""
@@ -154,8 +209,8 @@ func findToken(v any, depth int) string {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, child := range t {
-			if k == "token" {
-				if s, ok := child.(string); ok && len(s) > 20 {
+			if s, ok := child.(string); ok {
+				if looksLikeToken(s) || (tokenKeys[k] && len(s) > 20) {
 					return s
 				}
 			}
@@ -171,6 +226,15 @@ func findToken(v any, depth int) string {
 		}
 	}
 	return ""
+}
+
+// looksLikeToken reports whether a string looks like a Claude OAuth token.
+func looksLikeToken(s string) bool {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "sk-ant-") {
+		return true
+	}
+	return false
 }
 
 // applyUsage parses the (undocumented) usage payload tolerantly.

@@ -53,8 +53,8 @@ export function SetManualUsage(provider, used, limit, window) {
   return window['go']['main']['App']['SetManualUsage'](provider, used, limit, window);
 }
 
-export function ExperimentalClaudeSubscription() {
-  return window['go']['main']['App']['ExperimentalClaudeSubscription']();
+export function ExperimentalClaudeSubscription(token) {
+  return window['go']['main']['App']['ExperimentalClaudeSubscription'](token);
 }
 
 export function SetRefreshInterval(seconds) {
