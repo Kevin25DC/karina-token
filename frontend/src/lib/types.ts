@@ -48,6 +48,15 @@ export interface Balance {
   is_available: boolean;
 }
 
+export interface UsageWindow {
+  label: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  percent: number;
+  reset_at?: string;
+}
+
 export interface ProviderState {
   provider: ProviderID;
   display_name: string;
@@ -63,6 +72,7 @@ export interface ProviderState {
   reset_at?: string;
   rate_limit: RateLimitInfo;
   balance?: Balance;
+  windows?: UsageWindow[];
   note?: string;
   error?: string;
 }

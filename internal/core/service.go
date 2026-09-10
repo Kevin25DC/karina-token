@@ -53,6 +53,8 @@ type Options struct {
 	Logger          *slog.Logger
 	ProviderFactory func(domain.ProviderID) (api.Provider, error)
 	Autostart       func(enabled bool) error
+	// SkipManualAuto disables the automatic read of manual providers (tests).
+	SkipManualAuto bool
 }
 
 // manualReading is a user-entered usage reading for a manual provider
@@ -87,8 +89,9 @@ type Service struct {
 	lastSnap map[domain.ProviderID]time.Time
 	lastPt   map[domain.ProviderID]*domain.HistoryPoint
 
-	manualPath string
-	manual     map[domain.ProviderID]manualReading
+	manualPath     string
+	manual         map[domain.ProviderID]manualReading
+	skipManualAuto bool
 
 	listeners map[int]func(Event)
 	nextID    int
@@ -143,6 +146,7 @@ func (s *Service) Open(opts Options) error {
 	}
 	s.cfg = cfg
 	s.opts = opts
+	s.skipManualAuto = opts.SkipManualAuto
 	s.http = opts.HTTP
 	if s.http == nil {
 		s.http = api.DefaultClient()
@@ -170,20 +174,24 @@ func (s *Service) Open(opts Options) error {
 	// Manual providers (e.g. Claude subscription) have no adapter: restore
 	// their last user-entered readings.
 	s.manualPath = filepath.Join(s.baseDir, "manual.json")
-	if err := s.loadManualLocked(); err != nil {
+	if err := s.loadManual(); err != nil {
 		return err
 	}
 	s.mu.Lock()
+	readings := make(map[domain.ProviderID]manualReading, len(s.manual))
 	for id, r := range s.manual {
-		s.setStatus(s.manualState(id, r))
+		readings[id] = r
 	}
 	s.mu.Unlock()
+	for id, r := range readings {
+		s.setStatus(s.manualState(id, r))
+	}
 
 	s.logger.Info("service opened", "dir", s.baseDir, "interval", cfg.RefreshInterval().String())
 	return nil
 }
 
-func (s *Service) loadManualLocked() error {
+func (s *Service) loadManual() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, err := os.ReadFile(s.manualPath)
@@ -202,7 +210,8 @@ func (s *Service) loadManualLocked() error {
 	return nil
 }
 
-func (s *Service) saveManualLocked() error {
+// saveManual writes the manual readings. The caller must hold s.mu.
+func (s *Service) saveManual() error {
 	data, err := json.Marshal(s.manual)
 	if err != nil {
 		return err
@@ -228,6 +237,14 @@ func (s *Service) manualState(id domain.ProviderID, r manualReading) domain.Prov
 		RemainingTokens: domain.Remaining(r.Used, r.Limit),
 		UsageWindow:     r.Window,
 		Note:            "Lectura introducida manualmente desde claude.ai (no existe API oficial para la suscripción). Actualízala cuando cambie tu uso.",
+		Windows: []domain.UsageWindow{{
+			Label:     r.Window,
+			Used:      r.Used,
+			Limit:     r.Limit,
+			Remaining: domain.Remaining(r.Used, r.Limit),
+			Percent:   domain.Percent(r.Used, r.Limit),
+			ResetAt:   r.UpdatedAt,
+		}},
 	}
 }
 
@@ -250,7 +267,7 @@ func (s *Service) SetManualUsage(id domain.ProviderID, used, limit int64, window
 
 	s.mu.Lock()
 	s.manual[id] = r
-	err := s.saveManualLocked()
+	err := s.saveManual()
 	state := s.manualState(id, r)
 	s.mu.Unlock()
 	if err != nil {
@@ -384,8 +401,11 @@ func (s *Service) enabledReadyIDsLocked() []domain.ProviderID {
 		if !e.Enabled {
 			continue
 		}
-		// Manual providers have no adapter to poll.
 		if providers.IsManual(domain.ProviderID(id)) {
+			// Manual providers can auto-refresh when an OAuth token exists.
+			if s.manualTokenAvailable() {
+				out = append(out, domain.ProviderID(id))
+			}
 			continue
 		}
 		if s.hasCredentialLocked(domain.ProviderID(id)) {
@@ -393,6 +413,15 @@ func (s *Service) enabledReadyIDsLocked() []domain.ProviderID {
 		}
 	}
 	return out
+}
+
+// manualTokenAvailable reports whether an OAuth token is available locally.
+func (s *Service) manualTokenAvailable() bool {
+	if s.skipManualAuto {
+		return false
+	}
+	tok, _, _ := (&claudesub.Reader{}).DiscoverToken()
+	return tok != ""
 }
 
 func (s *Service) hasCredentialLocked(id domain.ProviderID) bool {
@@ -409,6 +438,12 @@ func (s *Service) refreshOne(ctx context.Context, id domain.ProviderID) {
 	s.mu.Unlock()
 	if !next.IsZero() && time.Now().Before(next) {
 		s.logger.Debug("provider skipped by backoff", "provider", id, "retry_at", next)
+		return
+	}
+
+	// Manual/experimental providers read their usage without an adapter.
+	if providers.IsManual(id) {
+		s.refreshManual(ctx, id)
 		return
 	}
 
@@ -466,6 +501,84 @@ func (s *Service) refreshOne(ctx context.Context, id domain.ProviderID) {
 	s.persistSnapshot(id, state)
 	s.logger.Info("provider refreshed", "provider", id, "status", state.Status)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(state)})
+}
+
+// refreshManual reads the usage of a manual/experimental provider (Claude
+// subscription) using the locally available OAuth token.
+func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
+	prev := s.currentState(id)
+	updating := prev
+	updating.Provider = id
+	updating.Status = domain.StatusUpdating
+	updating.StatusMsg = "Actualizando…"
+	updating.UpdatedAt = time.Now()
+	s.setStatus(updating)
+	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(updating)})
+
+	r := &claudesub.Reader{HTTP: s.http}
+	res := r.Read(ctx)
+	if !res.Found {
+		st := prev
+		st.Provider = id
+		st.UpdatedAt = time.Now()
+		st.Status = domain.StatusError
+		st.StatusMsg = "No se pudo leer automáticamente"
+		st.Error = res.Error
+		s.setStatus(st)
+		s.logger.Warn("manual provider read failed", "provider", id, "error", res.Error)
+		s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(st)})
+		return
+	}
+	st := s.manualStateFromResult(id, res)
+	s.setStatus(st)
+	s.persistSnapshot(id, st)
+	s.logger.Info("manual provider refreshed", "provider", id, "percent", res.Percent)
+	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(st)})
+}
+
+// manualStateFromResult converts an experimental read into a provider state
+// with all reported windows.
+func (s *Service) manualStateFromResult(id domain.ProviderID, res claudesub.Result) domain.ProviderState {
+	m, _ := providers.Get(id)
+	st := domain.ProviderState{
+		Provider:        id,
+		DisplayName:     m.Name,
+		Status:          domain.StatusConnected,
+		StatusMsg:       "Lectura automática (OAuth)",
+		UpdatedAt:       time.Now(),
+		Capabilities:    []domain.Capability{domain.CapTokenUsage},
+		UsageAvailable:  true,
+		UsedTokens:      res.Used,
+		LimitTokens:     res.Limit,
+		RemainingTokens: domain.Remaining(res.Used, res.Limit),
+		UsageWindow:     res.Window,
+		ResetAt:         parseTime(res.ResetAt),
+		Note:            "Lectura automática experimental vía OAuth de Claude (endpoint no oficial).",
+	}
+	for _, w := range res.Windows {
+		used := int64(w.Percent + 0.5)
+		st.Windows = append(st.Windows, domain.UsageWindow{
+			Label:     w.Label,
+			Used:      used,
+			Limit:     100,
+			Remaining: 100 - used,
+			Percent:   w.Percent,
+			ResetAt:   parseTime(w.ResetAt),
+		})
+	}
+	return st
+}
+
+func parseTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // markFailed records an error state and schedules an exponential backoff.
@@ -584,7 +697,7 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 	delete(s.backoff, id)
 	if providers.IsManual(id) {
 		delete(s.manual, id)
-		_ = s.saveManualLocked()
+		_ = s.saveManual()
 	}
 	s.mu.Unlock()
 	s.logger.Info("provider removed", "provider", id)

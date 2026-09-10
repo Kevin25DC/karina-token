@@ -55,7 +55,7 @@ func newTestService(t *testing.T, fakes map[string]*fakeProvider) *Service {
 		return nil, fmt.Errorf("no fake for %s", id)
 	}
 	s := New(nil)
-	if err := s.Open(Options{DataDir: dir, ProviderFactory: factory}); err != nil {
+	if err := s.Open(Options{DataDir: dir, ProviderFactory: factory, SkipManualAuto: true}); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(s.Close)

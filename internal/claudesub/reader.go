@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,16 +34,24 @@ import (
 // usageURL is a var so tests can point it at an httptest server.
 var usageURL = "https://api.anthropic.com/api/oauth/usage"
 
-// Result is what the experimental reader found.
-type Result struct {
-	Found   bool    `json:"found"`
-	Source  string  `json:"source"`
-	Window  string  `json:"window"`
-	Used    int64   `json:"used"`
-	Limit   int64   `json:"limit"`
+// Window is one usage window (session 5h, weekly, etc.).
+type Window struct {
+	Label   string  `json:"label"`
 	Percent float64 `json:"percent"`
 	ResetAt string  `json:"reset_at,omitempty"`
-	Error   string  `json:"error,omitempty"`
+}
+
+// Result is what the experimental reader found.
+type Result struct {
+	Found   bool     `json:"found"`
+	Source  string   `json:"source"`
+	Window  string   `json:"window"`
+	Used    int64    `json:"used"`
+	Limit   int64    `json:"limit"`
+	Percent float64  `json:"percent"`
+	ResetAt string   `json:"reset_at,omitempty"`
+	Windows []Window `json:"windows,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 // Reader discovers the local Claude Code token and queries the usage
@@ -66,7 +75,7 @@ func (r *Reader) http() *http.Client {
 
 // Read returns the current subscription usage window when it can.
 func (r *Reader) Read(ctx context.Context) Result {
-	token, source, err := r.discoverToken()
+	token, source, err := r.DiscoverToken()
 	if err != nil {
 		return Result{Found: false, Error: err.Error()}
 	}
@@ -118,7 +127,7 @@ func (r *Reader) Read(ctx context.Context) Result {
 }
 
 // discoverToken looks for the token Claude Code stores locally.
-func (r *Reader) discoverToken() (token, source string, err error) {
+func (r *Reader) DiscoverToken() (token, source string, err error) {
 	if tok := strings.TrimSpace(r.OverrideToken); tok != "" {
 		return tok, "token proporcionado", nil
 	}
@@ -269,15 +278,18 @@ var windowLabels = map[string]string{
 }
 
 type usageCandidate struct {
-	name    string
-	percent float64
-	reset   string
+	name     string
+	percent  float64
+	reset    string
+	priority int // lower = more relevant (session first)
 }
 
 // applyUsage parses the real (undocumented) usage payload:
 //   - legacy windows: {"five_hour":{"utilization":25.0,"resets_at":"..."}}
 //   - new "Claude 5" format: {"limits":[{"kind":"session","percent":25.0,...}]}
 //   - overage: {"extra_usage":{"utilization":18.68,...}}
+//
+// It prefers the session window (5h) as the primary figure, then weekly.
 func applyUsage(res *Result, body []byte) bool {
 	var root map[string]any
 	if json.Unmarshal(body, &root) != nil {
@@ -286,8 +298,13 @@ func applyUsage(res *Result, body []byte) bool {
 
 	var candidates []usageCandidate
 
-	// Legacy window objects.
+	// Legacy window objects (only known keys; unknown codenames are ignored
+	// because the new limits[] array already labels model windows).
 	for key, raw := range root {
+		name, known := windowLabels[key]
+		if !known {
+			continue
+		}
 		obj, ok := raw.(map[string]any)
 		if !ok {
 			continue
@@ -298,12 +315,10 @@ func applyUsage(res *Result, body []byte) bool {
 				continue
 			}
 		}
-		name := windowLabels[key]
-		if name == "" {
-			name = key
-		}
 		reset, _ := obj["resets_at"].(string)
-		candidates = append(candidates, usageCandidate{name: name, percent: pct, reset: reset})
+		candidates = append(candidates, usageCandidate{
+			name: name, percent: pct, reset: reset, priority: windowPriority(key),
+		})
 	}
 
 	// New limits[] array.
@@ -319,14 +334,18 @@ func applyUsage(res *Result, body []byte) bool {
 			}
 			name := labelForLimit(m)
 			reset, _ := m["resets_at"].(string)
-			candidates = append(candidates, usageCandidate{name: name, percent: pct, reset: reset})
+			candidates = append(candidates, usageCandidate{
+				name: name, percent: pct, reset: reset, priority: limitPriority(m),
+			})
 		}
 	}
 
 	// Extra usage / overage.
 	if ex, ok := root["extra_usage"].(map[string]any); ok {
 		if pct, ok := numOf(ex["utilization"]); ok {
-			candidates = append(candidates, usageCandidate{name: "Uso extra (overage)", percent: pct})
+			candidates = append(candidates, usageCandidate{
+				name: "Uso extra (overage)", percent: pct, priority: 3,
+			})
 		}
 	}
 
@@ -334,19 +353,67 @@ func applyUsage(res *Result, body []byte) bool {
 		return false
 	}
 
-	// Show the most consumed window (that is what matters for the user).
-	best := candidates[0]
-	for _, c := range candidates[1:] {
-		if c.percent > best.percent {
-			best = c
+	// Deduplicate windows that appear both in legacy fields and limits[]
+	// (same label), keeping the most relevant / most consumed entry.
+	byLabel := map[string]usageCandidate{}
+	for _, c := range candidates {
+		prev, ok := byLabel[c.name]
+		if !ok || c.priority < prev.priority || (c.priority == prev.priority && c.percent > prev.percent) {
+			byLabel[c.name] = c
 		}
 	}
+	candidates = candidates[:0]
+	for _, c := range byLabel {
+		candidates = append(candidates, c)
+	}
+
+	// Order by relevance (session first), then by consumption.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].priority != candidates[j].priority {
+			return candidates[i].priority < candidates[j].priority
+		}
+		return candidates[i].percent > candidates[j].percent
+	})
+
+	res.Windows = make([]Window, 0, len(candidates))
+	for _, c := range candidates {
+		res.Windows = append(res.Windows, Window{Label: c.name, Percent: c.percent, ResetAt: c.reset})
+	}
+
+	// Primary figure: the most relevant window (session 5h when available).
+	best := candidates[0]
 	res.Window = best.name
 	res.Used = int64(best.percent + 0.5)
 	res.Limit = 100
 	res.Percent = best.percent
 	res.ResetAt = best.reset
 	return true
+}
+
+func windowPriority(key string) int {
+	switch key {
+	case "five_hour":
+		return 0
+	case "seven_day":
+		return 1
+	case "seven_day_opus", "seven_day_sonnet", "seven_day_oauth_apps", "seven_day_cowork":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func limitPriority(m map[string]any) int {
+	switch kind, _ := m["kind"].(string); kind {
+	case "session":
+		return 0
+	case "weekly_all":
+		return 1
+	case "weekly_scoped":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func labelForLimit(m map[string]any) string {

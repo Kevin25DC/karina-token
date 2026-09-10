@@ -25,7 +25,7 @@ func TestDiscoverTokenFromClaudeCodeFile(t *testing.T) {
 	dir := t.TempDir()
 	writeCredentials(t, dir, `{"primaryAccount":{"oauthAccount":{"token":"3-abc123verylongtokentoken"}}}`)
 	r := &Reader{OverrideHome: dir, SkipKeyring: true}
-	tok, src, err := r.discoverToken()
+	tok, src, err := r.DiscoverToken()
 	if err != nil || tok == "" {
 		t.Fatalf("token=%q src=%q err=%v", tok, src, err)
 	}
@@ -36,7 +36,7 @@ func TestDiscoverTokenFromClaudeCodeFile(t *testing.T) {
 
 func TestDiscoverTokenMissing(t *testing.T) {
 	r := &Reader{OverrideHome: t.TempDir(), SkipKeyring: true}
-	tok, _, _ := r.discoverToken()
+	tok, _, _ := r.DiscoverToken()
 	if tok != "" {
 		t.Fatalf("expected no token, got %q", tok)
 	}
@@ -59,11 +59,18 @@ func TestReadUsageLegacyWindows(t *testing.T) {
 	if !res.Found {
 		t.Fatalf("found=false error=%s", res.Error)
 	}
-	if res.Used != 45 || res.Limit != 100 {
+	// Session window (5h) is the primary figure.
+	if res.Used != 25 || res.Limit != 100 {
 		t.Fatalf("used/limit = %d/%d", res.Used, res.Limit)
 	}
-	if res.Window != "Semanal (7 días)" {
+	if res.Window != "Ventana de 5 horas" {
 		t.Fatalf("window %q", res.Window)
+	}
+	if len(res.Windows) != 2 {
+		t.Fatalf("expected 2 windows, got %d", len(res.Windows))
+	}
+	if res.Windows[0].Label != "Ventana de 5 horas" || res.Windows[1].Label != "Semanal (7 días)" {
+		t.Fatalf("windows order %+v", res.Windows)
 	}
 	if res.ResetAt == "" {
 		t.Fatal("expected reset_at")
@@ -87,11 +94,15 @@ func TestReadUsageNewLimitsFormat(t *testing.T) {
 	if !res.Found {
 		t.Fatalf("found=false error=%s", res.Error)
 	}
-	if res.Percent != 48.5 {
+	// Session (kind=session) is primary even though weekly is higher.
+	if res.Percent != 25.0 {
 		t.Fatalf("percent %v", res.Percent)
 	}
-	if res.Window != "Semanal (7 días)" {
+	if res.Window != "Ventana de 5 horas" {
 		t.Fatalf("window %q", res.Window)
+	}
+	if len(res.Windows) != 3 {
+		t.Fatalf("expected 3 windows, got %d", len(res.Windows))
 	}
 }
 
@@ -151,8 +162,40 @@ func TestDiscoverNewClaudeAiOauthFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeCredentials(t, dir, `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abcdefghijklmnopqrstuvwxyz","refreshToken":"sk-ant-ort01-zzz"}}`)
 	r := &Reader{OverrideHome: dir, SkipKeyring: true}
-	tok, src, err := r.discoverToken()
+	tok, src, err := r.DiscoverToken()
 	if err != nil || tok != "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz" {
 		t.Fatalf("token=%q src=%q err=%v", tok, src, err)
+	}
+}
+
+func TestReadUsageDeduplicatesWindows(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{
+			"five_hour":{"utilization":13.0,"resets_at":"2026-09-10T06:10:00Z"},
+			"seven_day":{"utilization":44.0,"resets_at":"2026-09-12T16:00:00Z"},
+			"nimbus_quill":{"utilization":0},
+			"limits":[
+				{"kind":"session","percent":13.0},
+				{"kind":"weekly_all","percent":44.0}
+			]
+		}`)
+	}))
+	defer srv.Close()
+	old := usageURL
+	usageURL = srv.URL
+	defer func() { usageURL = old }()
+
+	res := (&Reader{OverrideToken: "sk-ant-oat01-x"}).Read(context.Background())
+	if !res.Found {
+		t.Fatalf("found=false error=%s", res.Error)
+	}
+	if len(res.Windows) != 2 {
+		t.Fatalf("expected 2 deduped windows, got %d: %+v", len(res.Windows), res.Windows)
+	}
+	if res.Windows[0].Label != "Ventana de 5 horas" || res.Windows[0].Percent != 13 {
+		t.Fatalf("session window wrong: %+v", res.Windows[0])
+	}
+	if res.Windows[1].Label != "Semanal (7 días)" || res.Windows[1].Percent != 44 {
+		t.Fatalf("weekly window wrong: %+v", res.Windows[1])
 	}
 }

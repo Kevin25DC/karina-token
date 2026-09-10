@@ -181,7 +181,31 @@ export function ProviderCard({
           </div>
         )}
 
-        {usagePct >= 0 ? (
+        {st.windows && st.windows.length > 0 ? (
+          <div className="space-y-3.5">
+            {st.windows.map((w) => (
+              <div key={w.label}>
+                <div className="flex items-end justify-between">
+                  <span className="text-xs font-medium text-zinc-300">{w.label}</span>
+                  <span className="font-mono text-lg font-semibold text-zinc-100">
+                    {Math.round(w.percent)}
+                    <span className="text-sm text-zinc-500">%</span>
+                  </span>
+                </div>
+                <UsageBar percent={w.percent} brand={meta.brand} className="mt-1.5" height="h-2" />
+                <div className="mt-1 flex items-center justify-between text-[10px] text-zinc-500">
+                  <span>{Math.round(w.remaining)}% restante</span>
+                  {w.reset_at && (
+                    <span>
+                      se reinicia{' '}
+                      {countdown(w.reset_at, now) ? `en ${countdown(w.reset_at, now)}` : formatTime(w.reset_at)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : usagePct >= 0 ? (
           <div>
             <div className="flex items-end justify-between">
               <p className="font-mono text-3xl font-semibold tracking-tight text-zinc-50">

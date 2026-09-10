@@ -247,13 +247,9 @@ function SheetBody({
   );
 }
 
-// ManualBody lets the user record the usage percentage shown by claude.ai for
-// their Pro/Max subscription (there is no official API for it).
-const MANUAL_WINDOWS = [
-  'Ventana de 5 horas (sesión)',
-  'Ventana semanal (7 días)',
-];
-
+// ManualBody (automatic mode) reads the claude.ai subscription usage. The
+// manual slider was removed at the author's request; there is still a fallback
+// token field for advanced users.
 function ManualBody({
   meta,
   onClose,
@@ -267,40 +263,40 @@ function ManualBody({
 }) {
   const states = useStore((s) => s.states);
   const existing = states[meta.id];
-  const initial = existing?.usage_available
-    ? Math.min(100, existing.used_tokens)
-    : 50;
 
-  const [pct, setPct] = useState<number>(initial);
-  const [windowLabel, setWindowLabel] = useState<string>(
-    existing?.usage_window || MANUAL_WINDOWS[0],
-  );
-  const [saving, setSaving] = useState(false);
-  const [autoLoading, setAutoLoading] = useState(false);
-  const [autoErr, setAutoErr] = useState<string | null>(null);
   const [token, setToken] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
   const [oauthStarted, setOauthStarted] = useState(false);
   const [oauthCode, setOauthCode] = useState('');
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthMsg, setOauthMsg] = useState<string | null>(null);
   const [oauthErr, setOauthErr] = useState<string | null>(null);
 
-  function applyRead(res: { used: number; window?: string }): void {
-    const used = Math.max(0, Math.min(100, Math.round(res.used)));
-    setPct(used);
-    if (res.window) {
-      const w = String(res.window);
-      setWindowLabel(/7/.test(w) ? MANUAL_WINDOWS[1] : MANUAL_WINDOWS[0]);
-    }
+  async function persist(used: number, win: string) {
+    const value = Math.max(0, Math.min(100, Math.round(used)));
+    await api.setManualUsage(meta.id, value, 100, win || 'Sesión (5 h)');
+    await onDone();
+    notify('success', `${meta.name} conectado · ${value}%`);
+    onClose();
   }
 
-  // Persist a reading so the provider appears in Karina right away.
-  async function persistReading(used: number, windowLabelValue: string) {
-    const value = Math.max(0, Math.min(100, Math.round(used)));
-    await api.setManualUsage(meta.id, value, 100, windowLabelValue);
-    await onDone();
-    notify('success', `${meta.name} añadido a Karina · ${value}%`);
-    onClose();
+  async function tryAuto() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await api.experimentalClaudeSubscription(token.trim());
+      if (res.found) {
+        await persist(res.used, res.window);
+      } else {
+        setErr(res.error || 'No se pudo leer automáticamente.');
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function startOAuth() {
@@ -310,7 +306,7 @@ function ManualBody({
     try {
       await api.claudeOAuthStart();
       setOauthStarted(true);
-      setOauthMsg('Se abrió el navegador. Autoriza con tu cuenta y pega aquí el código que muestre Claude.');
+      setOauthMsg('Se abrió el navegador. Autoriza y pega aquí el código que muestre Claude.');
     } catch (e) {
       setOauthErr((e as Error).message);
     } finally {
@@ -324,8 +320,7 @@ function ManualBody({
     try {
       const res = await api.claudeOAuthComplete(oauthCode.trim());
       if (res.found) {
-        applyRead({ used: res.used, window: res.window });
-        await persistReading(res.used, res.window || MANUAL_WINDOWS[0]);
+        await persist(res.used, res.window);
       } else {
         setOauthErr(res.error || 'No se pudo leer el uso.');
       }
@@ -336,37 +331,11 @@ function ManualBody({
     }
   }
 
-  async function tryAuto() {
-    setAutoLoading(true);
-    setAutoErr(null);
-    try {
-      const res = await api.experimentalClaudeSubscription(token.trim());
-      if (res.found) {
-        applyRead({ used: res.used, window: res.window });
-        await persistReading(res.used, res.window || MANUAL_WINDOWS[0]);
-      } else {
-        setAutoErr(res.error || 'No se pudo leer automáticamente.');
-      }
-    } catch (e) {
-      setAutoErr((e as Error).message);
-    } finally {
-      setAutoLoading(false);
-    }
-  }
-
-  async function save() {
-    setSaving(true);
-    try {
-      await api.setManualUsage(meta.id, Math.round(pct), 100, windowLabel);
-      await onDone();
-      notify('success', 'Lectura guardada en el historial');
-      onClose();
-    } catch (e) {
-      notify('error', (e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
+  const current = existing?.windows?.length
+    ? existing.windows.map((w) => `${w.label}: ${Math.round(w.percent)}%`).join(' · ')
+    : existing?.usage_available
+      ? `${Math.round(existing.used_tokens)}%`
+      : null;
 
   return (
     <div className="space-y-4">
@@ -376,136 +345,72 @@ function ManualBody({
           <p className="text-sm font-medium text-zinc-100">{meta.name}</p>
           <p className="text-xs text-zinc-500">{meta.description}</p>
         </div>
+        {current && (
+          <span className="font-mono text-xs text-emerald-300">{current}</span>
+        )}
       </div>
 
       <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.06] p-3.5 text-xs leading-relaxed text-amber-100/80">
-        claude.ai <strong>no expone una API oficial</strong> para leer el uso de la
-        suscripción. Introduce aquí el porcentaje que ves en tu cuenta de claude.ai
-        (Ajustes → Uso). Karina lo registra como lectura manual y lo guarda en el
-        historial. No toca tu sesión del navegador.
+        claude.ai no expone una API oficial para el uso de la suscripción. Karina
+        lo lee reutilizando el OAuth de Claude Code (experimental, endpoint no
+        oficial) y se actualiza solo cada intervalo. Si falla, prueba el login.
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => void tryAuto()} loading={loading} className="h-9">
+          <Sparkles className="h-3.5 w-3.5" /> Leer uso ahora
+        </Button>
+        <Button
+          variant="secondary"
+          className="h-9"
+          loading={oauthLoading && !oauthStarted}
+          onClick={() => void startOAuth()}
+        >
+          <LogIn className="h-3.5 w-3.5" /> Iniciar sesión con Claude
+        </Button>
+      </div>
+      {err && <p className="text-[11px] text-amber-300">{err}</p>}
+
       <div className="rounded-xl border border-violet-400/15 bg-violet-500/[0.06] p-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-medium text-violet-100/90">
-            Lectura automática (experimental)
-          </p>
-          <Button
-            variant="secondary"
-            className="h-8 px-3 text-xs"
-            loading={autoLoading}
-            onClick={() => void tryAuto()}
-          >
-            <Sparkles className="h-3.5 w-3.5" /> Probar con Claude Code
-          </Button>
-        </div>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-violet-100/60">
-          Experimental: reutiliza la sesión de Claude Code en este equipo
-          (requiere haber iniciado sesión una vez con <code className="font-mono">claude /login</code>).
-          Endpoint no oficial: puede fallar o cambiar; úsalo bajo tu responsabilidad.
+        <p className="text-[11px] font-medium text-violet-100/90">
+          ⚠️ Login OAuth experimental (mismo flujo que Claude Code)
         </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-violet-100/50">
+          Puede contravenir los términos de Anthropic y conllevar suspensión de la
+          cuenta. Úsalo bajo tu responsabilidad.
+        </p>
+        {oauthStarted && (
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={oauthCode}
+              onChange={(e) => setOauthCode(e.target.value)}
+              placeholder="Pega el código que muestra Claude"
+              spellCheck={false}
+              autoComplete="off"
+              className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
+            />
+            <Button className="h-8 px-3 text-xs" loading={oauthLoading} onClick={() => void completeOAuth()}>
+              <Check className="h-3.5 w-3.5" /> Completar
+            </Button>
+          </div>
+        )}
+        {oauthMsg && <p className="mt-2 text-[11px] font-medium text-emerald-300">{oauthMsg}</p>}
+        {oauthErr && <p className="mt-2 text-[11px] text-amber-300">{oauthErr}</p>}
         <input
           type="password"
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          placeholder="Opcional: pega aquí tu token OAuth (sk-ant-oat…)"
+          placeholder="Avanzado: pega un token OAuth (sk-ant-oat…)"
           spellCheck={false}
           autoComplete="off"
           className="mt-2.5 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
         />
-        <div className="mt-3 border-t border-white/10 pt-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] font-medium text-violet-100/90">
-              Login con Claude (OAuth experimental)
-            </p>
-            <Button
-              variant="secondary"
-              className="h-8 px-3 text-xs"
-              loading={oauthLoading && !oauthStarted}
-              onClick={() => void startOAuth()}
-            >
-              <LogIn className="h-3.5 w-3.5" /> Iniciar sesión
-            </Button>
-          </div>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-violet-100/50">
-            ⚠️ Usa el mismo flujo OAuth que Claude Code (suplantación del cliente
-            oficial): puede contravenir los términos de Anthropic y conllevar
-            suspensión de la cuenta. Úsalo solo bajo tu responsabilidad.
-          </p>
-          {oauthStarted && (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="text"
-                value={oauthCode}
-                onChange={(e) => setOauthCode(e.target.value)}
-                placeholder="Pega el código que muestra Claude"
-                spellCheck={false}
-                autoComplete="off"
-                className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
-              />
-              <Button
-                className="h-8 px-3 text-xs"
-                loading={oauthLoading}
-                onClick={() => void completeOAuth()}
-              >
-                <Check className="h-3.5 w-3.5" /> Completar
-              </Button>
-            </div>
-          )}
-          {oauthMsg && <p className="mt-2 text-[11px] font-medium text-emerald-300">{oauthMsg}</p>}
-          {oauthErr && <p className="mt-2 text-[11px] text-amber-300">{oauthErr}</p>}
-        </div>
-
-        {autoErr && (
-          <p className="mt-2 text-[11px] text-amber-300">{autoErr}</p>
-        )}
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-          Ventana de uso
-        </label>
-        <select
-          value={windowLabel}
-          onChange={(e) => setWindowLabel(e.target.value)}
-          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm text-zinc-100 outline-none transition-colors focus:border-white/20"
-        >
-          {MANUAL_WINDOWS.map((w) => (
-            <option key={w} value={w} className="bg-ink-800">
-              {w}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <div className="mb-2 flex items-end justify-between">
-          <label className="text-xs font-medium text-zinc-400">Uso actual</label>
-          <p className="font-mono text-2xl font-semibold text-zinc-50">
-            {Math.round(pct)}
-            <span className="text-base text-zinc-500">%</span>
-          </p>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={pct}
-          onChange={(e) => setPct(Number(e.target.value))}
-          className="w-full accent-violet-500"
-        />
-        <p className="mt-1 text-xs text-zinc-500">
-          Queda {100 - Math.round(pct)}% de la ventana ({windowLabel.toLowerCase()})
-        </p>
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
         <Button variant="ghost" onClick={onClose} className="h-9 text-xs">
-          Cancelar
-        </Button>
-        <Button onClick={() => void save()} loading={saving} className="h-9">
-          <Check className="h-3.5 w-3.5" /> Guardar lectura
+          Cerrar
         </Button>
       </div>
     </div>
