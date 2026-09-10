@@ -190,6 +190,13 @@ No declares `Capability` que el adaptador no pueda servir de verdad.
 con providers seleccionables y posición recordada. El core ya emite eventos suficientes para alimentarlos
 (`cycle:start`, `provider:update`, `cycle:end`).
 
+## Documentación del proyecto
+
+- AGENTS.md — entorno, comandos y reglas de desarrollo (para agentes/devs).
+- docs/PROJECT-STATE.md — estado, decisiones y pendientes.
+- docs/claude-subscription-study.md — estudio de la suscripción de Claude.
+- CHANGELOG.md — historial de versiones.
+
 ## Limitaciones reales (resumen)
 
 - Ningún proveedor expone **consumo global de tokens** a una API key normal; solo Admin keys
