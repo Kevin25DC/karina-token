@@ -14,6 +14,10 @@ import (
 // Service is the keyring service/application name used for all entries.
 const Service = "Karina"
 
+// ClaudeOAuthAccount is the keyring account that stores the experimental
+// Claude subscription OAuth token.
+const ClaudeOAuthAccount = "claude_subscription_oauth"
+
 // Backend abstracts the underlying OS credential store so it can be swapped
 // in tests.
 type Backend interface {

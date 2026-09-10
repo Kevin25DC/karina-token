@@ -712,6 +712,8 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 	if providers.IsManual(id) {
 		delete(s.manual, id)
 		_ = s.saveManual()
+		// Remove the stored experimental OAuth token as well.
+		_ = credentials.NewStore().Delete(credentials.ClaudeOAuthAccount)
 	}
 	s.mu.Unlock()
 	s.logger.Info("provider removed", "provider", id)

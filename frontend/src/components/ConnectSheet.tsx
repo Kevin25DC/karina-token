@@ -299,6 +299,17 @@ function ManualBody({
     }
   }
 
+  async function disconnect() {
+    try {
+      await api.removeProvider(meta.id);
+      await onDone();
+      notify('info', `${meta.name} desconectado`);
+      onClose();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
   async function startOAuth() {
     setOauthLoading(true);
     setOauthErr(null);
@@ -408,7 +419,14 @@ function ManualBody({
         />
       </div>
 
-      <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
+      <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-4">
+        <div>
+          {meta.enabled && (
+            <Button variant="danger" className="h-9 text-xs" onClick={() => void disconnect()}>
+              <Unplug className="h-3.5 w-3.5" /> Desconectar
+            </Button>
+          )}
+        </div>
         <Button variant="ghost" onClick={onClose} className="h-9 text-xs">
           Cerrar
         </Button>

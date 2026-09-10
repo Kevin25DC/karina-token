@@ -20,8 +20,6 @@ import (
 	"karina/internal/updater"
 )
 
-const claudeOAuthAccount = "claude_subscription_oauth"
-
 // Widget (ventana compacta) geometry.
 const (
 	widgetWidth  = 336
@@ -334,7 +332,7 @@ func (a *App) ClaudeOAuthComplete(codeInput string) claudesub.Result {
 
 	// Persist the token in the OS credential store (never logged).
 	if payload, err := json.Marshal(tok); err == nil {
-		if err := credentials.NewStore().Save(claudeOAuthAccount, string(payload)); err != nil {
+		if err := credentials.NewStore().Save(credentials.ClaudeOAuthAccount, string(payload)); err != nil {
 			a.log.Warn("could not store claude oauth token", "error", err.Error())
 		}
 	}
