@@ -351,6 +351,13 @@ type ClaudeOAuthStart struct {
 	URL string `json:"url"`
 }
 
+// LogClientError records a frontend error to a local file (diagnostics).
+func (a *App) LogClientError(message string, stack string) {
+	if err := a.svc.LogClientError(message, stack); err != nil {
+		a.log.Warn("could not write client error log", "error", err.Error())
+	}
+}
+
 // SetRefreshInterval updates the polling cadence (seconds).
 func (a *App) SetRefreshInterval(seconds int) error {
 	return a.svc.SetRefreshInterval(seconds)

@@ -606,6 +606,22 @@ func (s *Service) ExperimentalClaudeSubscription(token string) claudesub.Result 
 	return res
 }
 
+// LogClientError appends a frontend error to a local log file so problems in
+// the webview can be diagnosed. Never contains credentials.
+func (s *Service) LogClientError(message, stack string) error {
+	if len(stack) > 4000 {
+		stack = stack[:4000]
+	}
+	line := fmt.Sprintf("%s\t%s\t%s\n", time.Now().Format(time.RFC3339), message, stack)
+	f, err := os.OpenFile(filepath.Join(s.baseDir, "client-errors.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(line)
+	return err
+}
+
 // SetProviderEnabled toggles a provider without touching credentials.
 func (s *Service) SetProviderEnabled(id domain.ProviderID, enabled bool) error {
 	s.cfg.SetEnabled(string(id), enabled)

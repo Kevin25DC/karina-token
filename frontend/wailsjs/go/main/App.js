@@ -1,90 +1,108 @@
 // This file is the Wails binding wrapper for the Go App object. It mirrors
 // exactly the shape Wails would generate; it is maintained manually because
 // the generator relies on an older x/tools that cannot type-load Go 1.27
-// standard packages. All calls go through the injected window.go bridge.
+// standard packages.
+//
+// IMPORTANT: the bridge (window.go) is injected by Wails at runtime, so it is
+// resolved lazily inside each call. Accessing window.go at module load time
+// would throw "Cannot read properties of undefined (reading 'main')".
 
 // @ts-check
 
+function call(method, args) {
+  const go = window['go'];
+  if (!go || !go['main'] || !go['main']['App'] || typeof go['main']['App'][method] !== 'function') {
+    throw new Error(
+      'El puente con Karina todavía no está disponible. Abre la aplicación de escritorio (Karina.exe).',
+    );
+  }
+  return go['main']['App'][method].apply(null, args);
+}
+
 export function GetAppInfo() {
-  return window['go']['main']['App']['GetAppInfo']();
+  return call('GetAppInfo', []);
 }
 
 export function CheckForUpdate() {
-  return window['go']['main']['App']['CheckForUpdate']();
+  return call('CheckForUpdate', []);
 }
 
 export function RefreshNow() {
-  return window['go']['main']['App']['RefreshNow']();
+  return call('RefreshNow', []);
 }
 
 export function ListProviders() {
-  return window['go']['main']['App']['ListProviders']();
+  return call('ListProviders', []);
 }
 
 export function States() {
-  return window['go']['main']['App']['States']();
+  return call('States', []);
 }
 
 export function Config() {
-  return window['go']['main']['App']['Config']();
+  return call('Config', []);
 }
 
 export function KeyPreview(provider) {
-  return window['go']['main']['App']['KeyPreview'](provider);
+  return call('KeyPreview', [provider]);
 }
 
 export function TestProvider(provider, key) {
-  return window['go']['main']['App']['TestProvider'](provider, key);
+  return call('TestProvider', [provider, key]);
 }
 
 export function SaveProviderKey(provider, key) {
-  return window['go']['main']['App']['SaveProviderKey'](provider, key);
+  return call('SaveProviderKey', [provider, key]);
 }
 
 export function RemoveProvider(provider) {
-  return window['go']['main']['App']['RemoveProvider'](provider);
+  return call('RemoveProvider', [provider]);
 }
 
 export function SetProviderEnabled(provider, enabled) {
-  return window['go']['main']['App']['SetProviderEnabled'](provider, enabled);
+  return call('SetProviderEnabled', [provider, enabled]);
 }
 
 export function SetManualUsage(provider, used, limit, window) {
-  return window['go']['main']['App']['SetManualUsage'](provider, used, limit, window);
+  return call('SetManualUsage', [provider, used, limit, window]);
 }
 
 export function ExperimentalClaudeSubscription(token) {
-  return window['go']['main']['App']['ExperimentalClaudeSubscription'](token);
+  return call('ExperimentalClaudeSubscription', [token]);
 }
 
 export function ClaudeOAuthStart() {
-  return window['go']['main']['App']['ClaudeOAuthStart']();
+  return call('ClaudeOAuthStart', []);
 }
 
 export function ClaudeOAuthComplete(code) {
-  return window['go']['main']['App']['ClaudeOAuthComplete'](code);
+  return call('ClaudeOAuthComplete', [code]);
+}
+
+export function LogClientError(message, stack) {
+  return call('LogClientError', [message, stack]);
 }
 
 export function SetRefreshInterval(seconds) {
-  return window['go']['main']['App']['SetRefreshInterval'](seconds);
+  return call('SetRefreshInterval', [seconds]);
 }
 
 export function SetStartWithSystem(enabled) {
-  return window['go']['main']['App']['SetStartWithSystem'](enabled);
+  return call('SetStartWithSystem', [enabled]);
 }
 
 export function CompleteOnboarding() {
-  return window['go']['main']['App']['CompleteOnboarding']();
+  return call('CompleteOnboarding', []);
 }
 
 export function EnterWidgetMode() {
-  return window['go']['main']['App']['EnterWidgetMode']();
+  return call('EnterWidgetMode', []);
 }
 
 export function ExitWidgetMode() {
-  return window['go']['main']['App']['ExitWidgetMode']();
+  return call('ExitWidgetMode', []);
 }
 
 export function History(provider, span) {
-  return window['go']['main']['App']['History'](provider, span);
+  return call('History', [provider, span]);
 }
