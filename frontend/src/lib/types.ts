@@ -132,6 +132,7 @@ export interface ExperimentalSubRead {
   used: number;
   limit: number;
   percent: number;
+  reset_at?: string;
   error?: string;
 }
 

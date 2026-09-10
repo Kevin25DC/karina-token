@@ -41,6 +41,7 @@ type Result struct {
 	Used    int64   `json:"used"`
 	Limit   int64   `json:"limit"`
 	Percent float64 `json:"percent"`
+	ResetAt string  `json:"reset_at,omitempty"`
 	Error   string  `json:"error,omitempty"`
 }
 
@@ -52,6 +53,8 @@ type Reader struct {
 	OverrideHome string
 	// OverrideToken overrides the env var (tests).
 	OverrideToken string
+	// SkipKeyring disables the OS credential-store lookup (tests).
+	SkipKeyring bool
 }
 
 func (r *Reader) http() *http.Client {
@@ -83,6 +86,9 @@ func (r *Reader) Read(ctx context.Context) Result {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	// Required to accept an OAuth Bearer token on Anthropic endpoints.
+	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	req.Header.Set("User-Agent", "Karina/0.2-experimental")
 
 	httpResp, err := r.http().Do(req)
@@ -152,8 +158,10 @@ func (r *Reader) discoverToken() (token, source string, err error) {
 	}
 
 	// Windows Credential Manager / macOS Keychain / Secret Service.
-	if tok := readFromKeyring(); tok != "" {
-		return tok, "almacén de credenciales del sistema", nil
+	if !r.SkipKeyring {
+		if tok := readFromKeyring(); tok != "" {
+			return tok, "almacén de credenciales del sistema", nil
+		}
 	}
 	return "", "", nil
 }
@@ -250,42 +258,114 @@ func looksLikeToken(s string) bool {
 	return false
 }
 
-// applyUsage parses the (undocumented) usage payload tolerantly.
+// windowLabels maps the known legacy window keys to friendly names.
+var windowLabels = map[string]string{
+	"five_hour":            "Ventana de 5 horas",
+	"seven_day":            "Semanal (7 días)",
+	"seven_day_opus":       "Semanal Opus",
+	"seven_day_sonnet":     "Semanal Sonnet",
+	"seven_day_oauth_apps": "Semanal (apps OAuth)",
+	"seven_day_cowork":     "Semanal (Cowork)",
+}
+
+type usageCandidate struct {
+	name    string
+	percent float64
+	reset   string
+}
+
+// applyUsage parses the real (undocumented) usage payload:
+//   - legacy windows: {"five_hour":{"utilization":25.0,"resets_at":"..."}}
+//   - new "Claude 5" format: {"limits":[{"kind":"session","percent":25.0,...}]}
+//   - overage: {"extra_usage":{"utilization":18.68,...}}
 func applyUsage(res *Result, body []byte) bool {
 	var root map[string]any
 	if json.Unmarshal(body, &root) != nil {
 		return false
 	}
-	for window, raw := range root {
+
+	var candidates []usageCandidate
+
+	// Legacy window objects.
+	for key, raw := range root {
 		obj, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		used, hasUsed := numOf(obj["used"])
-		pct, hasPct := numOf(obj["used_percent"])
-		limit, hasLimit := numOf(obj["limit"])
-		if !hasUsed && !hasPct {
-			continue
+		pct, ok := numOf(obj["utilization"])
+		if !ok {
+			if pct, ok = numOf(obj["used_percentage"]); !ok {
+				continue
+			}
 		}
-		// If the payload reports only a percentage, show a 0..100 gauge.
-		if !hasUsed && hasPct {
-			used = pct
-			limit = 100
-			hasUsed = true
+		name := windowLabels[key]
+		if name == "" {
+			name = key
 		}
-		if !hasLimit {
-			limit = 100
-		}
-		res.Window = window
-		res.Used = int64(used)
-		res.Limit = int64(limit)
-		res.Percent = pct
-		if res.Percent <= 0 && res.Limit > 0 {
-			res.Percent = used / float64(res.Limit) * 100
-		}
-		return true
+		reset, _ := obj["resets_at"].(string)
+		candidates = append(candidates, usageCandidate{name: name, percent: pct, reset: reset})
 	}
-	return false
+
+	// New limits[] array.
+	if arr, ok := root["limits"].([]any); ok {
+		for _, item := range arr {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			pct, ok := numOf(m["percent"])
+			if !ok {
+				continue
+			}
+			name := labelForLimit(m)
+			reset, _ := m["resets_at"].(string)
+			candidates = append(candidates, usageCandidate{name: name, percent: pct, reset: reset})
+		}
+	}
+
+	// Extra usage / overage.
+	if ex, ok := root["extra_usage"].(map[string]any); ok {
+		if pct, ok := numOf(ex["utilization"]); ok {
+			candidates = append(candidates, usageCandidate{name: "Uso extra (overage)", percent: pct})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return false
+	}
+
+	// Show the most consumed window (that is what matters for the user).
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.percent > best.percent {
+			best = c
+		}
+	}
+	res.Window = best.name
+	res.Used = int64(best.percent + 0.5)
+	res.Limit = 100
+	res.Percent = best.percent
+	res.ResetAt = best.reset
+	return true
+}
+
+func labelForLimit(m map[string]any) string {
+	if scope, ok := m["scope"].(map[string]any); ok {
+		if model, ok := scope["model"].(map[string]any); ok {
+			if dn, ok := model["display_name"].(string); ok && dn != "" {
+				return "Semanal · " + dn
+			}
+		}
+	}
+	switch kind, _ := m["kind"].(string); kind {
+	case "session":
+		return "Ventana de 5 horas"
+	case "weekly_all":
+		return "Semanal (7 días)"
+	case "weekly_scoped":
+		return "Semanal (modelo)"
+	}
+	return "Límite"
 }
 
 func numOf(v any) (float64, bool) {

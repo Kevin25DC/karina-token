@@ -317,7 +317,9 @@ function ManualBody({
       const res = await api.claudeOAuthComplete(oauthCode.trim());
       if (res.found) {
         applyRead({ used: res.used, window: res.window });
-        setOauthMsg(`Login correcto. Uso: ${Math.round(res.used)}% (${res.window || '?'}). Revisa y guarda.`);
+        setOauthMsg(
+          `Login correcto. Uso: ${Math.round(res.used)}% (${res.window || '?'})${res.reset_at ? ` · se reinicia ${new Date(res.reset_at).toLocaleString('es-ES')}` : ''}. Revisa y guarda.`,
+        );
       } else {
         setOauthErr(res.error || 'No se pudo leer el uso.');
       }
