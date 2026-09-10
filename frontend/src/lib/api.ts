@@ -18,12 +18,30 @@ import type {
 } from './types';
 
 async function call<T>(fn: () => Promise<T>): Promise<T> {
+  await waitForBridge();
   try {
     return await fn();
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     throw new Error(message);
   }
+}
+
+/**
+ * The Go bridge (window.go) is injected by Wails. Wait briefly for it so an
+ * early call does not fail with "cannot read properties of undefined".
+ */
+async function waitForBridge(): Promise<void> {
+  const w = window as unknown as {
+    go?: { main?: { App?: unknown } };
+  };
+  for (let i = 0; i < 100; i++) {
+    if (w.go && w.go.main && w.go.main.App) return;
+    await new Promise((r) => window.setTimeout(r, 50));
+  }
+  throw new Error(
+    'No se pudo conectar con el motor de Karina. Abre la aplicación desde Karina.exe (la app de escritorio), no en un navegador.',
+  );
 }
 
 export const api = {
