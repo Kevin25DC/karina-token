@@ -94,11 +94,11 @@ func (r *Reader) Read(ctx context.Context) Result {
 		return res
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	// Required to accept an OAuth Bearer token on Anthropic endpoints.
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("User-Agent", "Karina/0.2-experimental")
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("User-Agent", "claude-cli/2.1.2 (external, cli)")
 
 	httpResp, err := r.http().Do(req)
 	if err != nil {
@@ -115,7 +115,11 @@ func (r *Reader) Read(ctx context.Context) Result {
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		res.Found = false
-		res.Error = fmt.Sprintf("Anthropic respondió HTTP %d (el endpoint es experimental)", httpResp.StatusCode)
+		if httpResp.StatusCode == http.StatusConflict {
+			res.Error = "Anthropic devolvió 409 (conflicto): normalmente es temporal o por consultar demasiado seguido. Espera un momento y reintenta; la lectura automática ahora espera 5 minutos."
+		} else {
+			res.Error = fmt.Sprintf("Anthropic respondió HTTP %d: %s", httpResp.StatusCode, snippet(body))
+		}
 		return res
 	}
 
@@ -124,6 +128,16 @@ func (r *Reader) Read(ctx context.Context) Result {
 		res.Error = "La respuesta del endpoint no se pudo interpretar (cambió el formato). Sigue disponible la lectura manual."
 	}
 	return res
+}
+
+// snippet returns a short, single-line, safe excerpt of a response body.
+func snippet(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 160 {
+		s = s[:160] + "…"
+	}
+	return s
 }
 
 // discoverToken looks for the token Claude Code stores locally.

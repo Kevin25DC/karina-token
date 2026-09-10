@@ -27,6 +27,7 @@ import (
 
 const (
 	refreshTimeout     = 25 * time.Second
+	manualMinInterval  = 5 * time.Minute
 	minIntervalSeconds = 10
 	maxIntervalSeconds = 3600
 )
@@ -92,6 +93,8 @@ type Service struct {
 	manualPath     string
 	manual         map[domain.ProviderID]manualReading
 	skipManualAuto bool
+	manualReadMu   sync.Mutex
+	lastManualRead map[domain.ProviderID]time.Time
 
 	listeners map[int]func(Event)
 	nextID    int
@@ -110,15 +113,16 @@ func New(logger *slog.Logger) *Service {
 		logger = logging.New(slog.LevelInfo)
 	}
 	return &Service{
-		logger:    logger,
-		adapters:  map[domain.ProviderID]api.Provider{},
-		states:    map[domain.ProviderID]domain.ProviderState{},
-		nextTry:   map[domain.ProviderID]time.Time{},
-		backoff:   map[domain.ProviderID]time.Duration{},
-		lastSnap:  map[domain.ProviderID]time.Time{},
-		lastPt:    map[domain.ProviderID]*domain.HistoryPoint{},
-		manual:    map[domain.ProviderID]manualReading{},
-		listeners: map[int]func(Event){},
+		logger:         logger,
+		adapters:       map[domain.ProviderID]api.Provider{},
+		states:         map[domain.ProviderID]domain.ProviderState{},
+		nextTry:        map[domain.ProviderID]time.Time{},
+		backoff:        map[domain.ProviderID]time.Duration{},
+		lastSnap:       map[domain.ProviderID]time.Time{},
+		lastPt:         map[domain.ProviderID]*domain.HistoryPoint{},
+		manual:         map[domain.ProviderID]manualReading{},
+		lastManualRead: map[domain.ProviderID]time.Time{},
+		listeners:      map[int]func(Event){},
 	}
 }
 
@@ -506,6 +510,16 @@ func (s *Service) refreshOne(ctx context.Context, id domain.ProviderID) {
 // refreshManual reads the usage of a manual/experimental provider (Claude
 // subscription) using the locally available OAuth token.
 func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
+	// Serialize reads and throttle automatic polling so we never hit the
+	// experimental endpoint too often or concurrently (it can return 409).
+	s.manualReadMu.Lock()
+	defer s.manualReadMu.Unlock()
+	if t := s.lastManualRead[id]; !t.IsZero() && time.Since(t) < manualMinInterval {
+		s.logger.Debug("manual provider throttled", "provider", id)
+		return
+	}
+	s.lastManualRead[id] = time.Now()
+
 	prev := s.currentState(id)
 	updating := prev
 	updating.Provider = id
@@ -711,10 +725,15 @@ func (s *Service) RemoveProvider(id domain.ProviderID) error {
 // token saved by Claude Code on this machine. Experimental: undocumented
 // endpoint, use at your own risk.
 func (s *Service) ExperimentalClaudeSubscription(token string) claudesub.Result {
+	// Serialize with the automatic poll so requests never overlap (409).
+	s.manualReadMu.Lock()
+	defer s.manualReadMu.Unlock()
+
 	r := &claudesub.Reader{HTTP: s.http, OverrideToken: token}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	res := r.Read(ctx)
+	s.lastManualRead["claude_subscription"] = time.Now()
 	s.logger.Info("experimental claude subscription read", "found", res.Found, "window", res.Window)
 	return res
 }
