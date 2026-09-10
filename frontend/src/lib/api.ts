@@ -4,6 +4,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 import type {
   AppInfo,
+  ClaudeOAuthStart,
   ConfigSnapshot,
   EventPayload,
   ExperimentalSubRead,
@@ -45,6 +46,9 @@ export const api = {
     call<void>(() => App.SetManualUsage(provider, used, limit, window)),
   experimentalClaudeSubscription: (token: string) =>
     call<ExperimentalSubRead>(() => App.ExperimentalClaudeSubscription(token)),
+  claudeOAuthStart: () => call<ClaudeOAuthStart>(() => App.ClaudeOAuthStart()),
+  claudeOAuthComplete: (code: string) =>
+    call<ExperimentalSubRead>(() => App.ClaudeOAuthComplete(code)),
   setRefreshInterval: (seconds: number) =>
     call<void>(() => App.SetRefreshInterval(seconds)),
   setStartWithSystem: (enabled: boolean) =>

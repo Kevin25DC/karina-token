@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/zalando/go-keyring"
+
+	"karina/internal/credentials"
 )
 
 // usageURL is a var so tests can point it at an httptest server.
@@ -157,6 +159,17 @@ func (r *Reader) discoverToken() (token, source string, err error) {
 }
 
 func readFromKeyring() string {
+	// Token stored by Karina's own experimental OAuth login.
+	if secret, err := keyring.Get(credentials.Service, "claude_subscription_oauth"); err == nil && secret != "" {
+		var tok Token
+		if json.Unmarshal([]byte(secret), &tok) == nil && tok.AccessToken != "" {
+			return tok.AccessToken
+		}
+		if looksLikeToken(secret) {
+			return strings.TrimSpace(secret)
+		}
+	}
+
 	services := []string{"Claude Code-credentials", "Claude Code", "claude-code", "claude.ai"}
 	accounts := []string{"", "claude", "Claude Code"}
 	for _, svc := range services {

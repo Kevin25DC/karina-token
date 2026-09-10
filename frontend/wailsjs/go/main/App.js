@@ -57,6 +57,14 @@ export function ExperimentalClaudeSubscription(token) {
   return window['go']['main']['App']['ExperimentalClaudeSubscription'](token);
 }
 
+export function ClaudeOAuthStart() {
+  return window['go']['main']['App']['ClaudeOAuthStart']();
+}
+
+export function ClaudeOAuthComplete(code) {
+  return window['go']['main']['App']['ClaudeOAuthComplete'](code);
+}
+
 export function SetRefreshInterval(seconds) {
   return window['go']['main']['App']['SetRefreshInterval'](seconds);
 }

@@ -75,6 +75,20 @@ la cuenta del usuario.** Por eso:
   romperse), y uso del OAuth de suscripción fuera de apps nativas de Anthropic
   puede contravenir los términos (enforcement/baneos reportados en 2026).
 
+### OAuth experimental “Iniciar sesión con Claude” (vía elegida por el autor)
+- Implementado en `internal/claudesub/oauth.go` replicando el flujo de Claude
+  Code: PKCE (S256) + URL de autorización + intercambio de código.
+- Parámetros confirmados por investigación de código fuente de Claude Code y
+  proyectos que replican su OAuth (client_id `9d1c250a-…`, authorize
+  `https://claude.com/cai/oauth/authorize`, token
+  `https://platform.claude.com/v1/oauth/token`, redirect
+  `https://platform.claude.com/oauth/code/callback`, scopes del CLI).
+- El token obtenido se guarda en el **almacén de credenciales del sistema**
+  (cuenta `claude_subscription_oauth`) y se usa para leer el uso; nunca se
+  registra en logs.
+- Advertencia explícita en la UI: es **suplantación del cliente oficial** y
+  puede violar los términos y conllevar suspensión de la cuenta.
+
 ## Riesgos / pendientes
 - La lectura es **manual** (el usuario debe actualizarla; el dato vive en claude.ai).
 - Si en el futuro Anthropic publica una API oficial de uso para suscripciones,

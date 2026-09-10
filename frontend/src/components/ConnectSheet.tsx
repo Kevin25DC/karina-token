@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ExternalLink, KeyRound, Plug, Sparkles, Unplug } from 'lucide-react';
+import { Check, ExternalLink, KeyRound, LogIn, Plug, Sparkles, Unplug } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import type { ProviderMeta, ProviderState } from '@/lib/types';
@@ -280,6 +280,53 @@ function ManualBody({
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
   const [autoErr, setAutoErr] = useState<string | null>(null);
   const [token, setToken] = useState('');
+  const [oauthStarted, setOauthStarted] = useState(false);
+  const [oauthCode, setOauthCode] = useState('');
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthMsg, setOauthMsg] = useState<string | null>(null);
+  const [oauthErr, setOauthErr] = useState<string | null>(null);
+
+  function applyRead(res: { used: number; window?: string }): void {
+    const used = Math.max(0, Math.min(100, Math.round(res.used)));
+    setPct(used);
+    if (res.window) {
+      const w = String(res.window);
+      setWindowLabel(/7/.test(w) ? MANUAL_WINDOWS[1] : MANUAL_WINDOWS[0]);
+    }
+  }
+
+  async function startOAuth() {
+    setOauthLoading(true);
+    setOauthErr(null);
+    setOauthMsg(null);
+    try {
+      await api.claudeOAuthStart();
+      setOauthStarted(true);
+      setOauthMsg('Se abrió el navegador. Autoriza con tu cuenta y pega aquí el código que muestre Claude.');
+    } catch (e) {
+      setOauthErr((e as Error).message);
+    } finally {
+      setOauthLoading(false);
+    }
+  }
+
+  async function completeOAuth() {
+    setOauthLoading(true);
+    setOauthErr(null);
+    try {
+      const res = await api.claudeOAuthComplete(oauthCode.trim());
+      if (res.found) {
+        applyRead({ used: res.used, window: res.window });
+        setOauthMsg(`Login correcto. Uso: ${Math.round(res.used)}% (${res.window || '?'}). Revisa y guarda.`);
+      } else {
+        setOauthErr(res.error || 'No se pudo leer el uso.');
+      }
+    } catch (e) {
+      setOauthErr((e as Error).message);
+    } finally {
+      setOauthLoading(false);
+    }
+  }
 
   async function tryAuto() {
     setAutoLoading(true);
@@ -367,6 +414,49 @@ function ManualBody({
           autoComplete="off"
           className="mt-2.5 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
         />
+        <div className="mt-3 border-t border-white/10 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-medium text-violet-100/90">
+              Login con Claude (OAuth experimental)
+            </p>
+            <Button
+              variant="secondary"
+              className="h-8 px-3 text-xs"
+              loading={oauthLoading && !oauthStarted}
+              onClick={() => void startOAuth()}
+            >
+              <LogIn className="h-3.5 w-3.5" /> Iniciar sesión
+            </Button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-violet-100/50">
+            ⚠️ Usa el mismo flujo OAuth que Claude Code (suplantación del cliente
+            oficial): puede contravenir los términos de Anthropic y conllevar
+            suspensión de la cuenta. Úsalo solo bajo tu responsabilidad.
+          </p>
+          {oauthStarted && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                value={oauthCode}
+                onChange={(e) => setOauthCode(e.target.value)}
+                placeholder="Pega el código que muestra Claude"
+                spellCheck={false}
+                autoComplete="off"
+                className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
+              />
+              <Button
+                className="h-8 px-3 text-xs"
+                loading={oauthLoading}
+                onClick={() => void completeOAuth()}
+              >
+                <Check className="h-3.5 w-3.5" /> Completar
+              </Button>
+            </div>
+          )}
+          {oauthMsg && <p className="mt-2 text-[11px] font-medium text-emerald-300">{oauthMsg}</p>}
+          {oauthErr && <p className="mt-2 text-[11px] text-amber-300">{oauthErr}</p>}
+        </div>
+
         {autoMsg && (
           <p className="mt-2 text-[11px] font-medium text-emerald-300">{autoMsg}</p>
         )}

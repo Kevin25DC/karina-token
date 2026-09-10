@@ -2,19 +2,25 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"karina/internal/claudesub"
 	"karina/internal/core"
+	"karina/internal/credentials"
 	"karina/internal/domain"
 	"karina/internal/platform"
 	"karina/internal/updater"
 )
+
+const claudeOAuthAccount = "claude_subscription_oauth"
 
 // Widget (ventana compacta) geometry.
 const (
@@ -38,6 +44,10 @@ type App struct {
 	icon        []byte
 	trayOK      bool
 	widgetMode  bool
+
+	oauthMu    sync.Mutex
+	oauthPKCE  claudesub.PKCE
+	oauthReady bool
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -273,6 +283,72 @@ func (a *App) SetManualUsage(provider string, used int64, limit int64, window st
 // Pass an empty token to auto-detect it from Claude Code.
 func (a *App) ExperimentalClaudeSubscription(token string) claudesub.Result {
 	return a.svc.ExperimentalClaudeSubscription(token)
+}
+
+// ClaudeOAuthStart builds the Claude authorization URL, opens it in the
+// browser and remembers the PKCE verifier for the completion step.
+func (a *App) ClaudeOAuthStart() (ClaudeOAuthStart, error) {
+	pkce, err := claudesub.NewPKCE()
+	if err != nil {
+		return ClaudeOAuthStart{}, err
+	}
+	a.oauthMu.Lock()
+	a.oauthPKCE = pkce
+	a.oauthReady = true
+	a.oauthMu.Unlock()
+
+	cfg := claudesub.DefaultOAuthConfig()
+	authURL := claudesub.AuthorizeURL(cfg, pkce)
+	if a.ctx != nil {
+		runtime.BrowserOpenURL(a.ctx, authURL)
+	}
+	a.log.Info("claude oauth started")
+	return ClaudeOAuthStart{URL: authURL}, nil
+}
+
+// ClaudeOAuthComplete exchanges the pasted authorization code for a token,
+// stores it in the OS credential store and immediately reads the usage.
+func (a *App) ClaudeOAuthComplete(codeInput string) claudesub.Result {
+	code := claudesub.ParseCallbackCode(codeInput)
+	if code == "" {
+		return claudesub.Result{Error: "Pega el código que te mostró Claude."}
+	}
+	a.oauthMu.Lock()
+	pkce := a.oauthPKCE
+	ready := a.oauthReady
+	a.oauthMu.Unlock()
+	if !ready {
+		return claudesub.Result{Error: "Pulsa primero «Iniciar sesión con Claude»."}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	tok, err := claudesub.ExchangeCode(ctx, &http.Client{Timeout: 30 * time.Second}, claudesub.DefaultOAuthConfig(), code, pkce.Verifier)
+	if err != nil {
+		a.log.Warn("claude oauth exchange failed", "error", err.Error())
+		return claudesub.Result{Error: err.Error()}
+	}
+	a.oauthMu.Lock()
+	a.oauthReady = false
+	a.oauthMu.Unlock()
+
+	// Persist the token in the OS credential store (never logged).
+	if payload, err := json.Marshal(tok); err == nil {
+		if err := credentials.NewStore().Save(claudeOAuthAccount, string(payload)); err != nil {
+			a.log.Warn("could not store claude oauth token", "error", err.Error())
+		}
+	}
+
+	res := a.svc.ExperimentalClaudeSubscription(tok.AccessToken)
+	if res.Found {
+		res.Source = "login con Claude (token guardado)"
+	}
+	return res
+}
+
+// ClaudeOAuthStart is the response of ClaudeOAuthStart.
+type ClaudeOAuthStart struct {
+	URL string `json:"url"`
 }
 
 // SetRefreshInterval updates the polling cadence (seconds).

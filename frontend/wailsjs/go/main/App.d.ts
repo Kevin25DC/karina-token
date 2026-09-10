@@ -2,6 +2,7 @@
 
 import type {
   AppInfo,
+  ClaudeOAuthStart,
   ConfigSnapshot,
   ExperimentalSubRead,
   HistoryResult,
@@ -31,6 +32,8 @@ export function SetManualUsage(
   window: string,
 ): Promise<void>;
 export function ExperimentalClaudeSubscription(token: string): Promise<ExperimentalSubRead>;
+export function ClaudeOAuthStart(): Promise<ClaudeOAuthStart>;
+export function ClaudeOAuthComplete(code: string): Promise<ExperimentalSubRead>;
 export function SetRefreshInterval(seconds: number): Promise<void>;
 export function SetStartWithSystem(enabled: boolean): Promise<void>;
 export function CompleteOnboarding(): Promise<void>;

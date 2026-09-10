@@ -134,3 +134,7 @@ export interface ExperimentalSubRead {
   percent: number;
   error?: string;
 }
+
+export interface ClaudeOAuthStart {
+  url: string;
+}
