@@ -27,7 +27,7 @@ func main() {
 	log := logging.New(slog.LevelInfo)
 
 	svc := core.New(log)
-	if err := svc.Open(core.Options{Autostart: platform.SetStartWithSystem}); err != nil {
+	if err := svc.Open(core.Options{Autostart: platform.SetStartWithSystem, Notify: platform.Notify}); err != nil {
 		log.Error("failed to open service", "error", err.Error())
 		return
 	}

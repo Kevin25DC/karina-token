@@ -91,6 +91,14 @@ export function SetStartWithSystem(enabled) {
   return call('SetStartWithSystem', [enabled]);
 }
 
+export function SetAlertsEnabled(enabled) {
+  return call('SetAlertsEnabled', [enabled]);
+}
+
+export function SetAlertThreshold(percent) {
+  return call('SetAlertThreshold', [percent]);
+}
+
 export function CompleteOnboarding() {
   return call('CompleteOnboarding', []);
 }

@@ -17,6 +17,7 @@ import (
 const (
 	defaultRefreshSeconds  = 30
 	defaultSnapshotSeconds = 60
+	defaultAlertThreshold  = 85
 )
 
 // ProviderEntry holds per-provider local settings.
@@ -30,6 +31,8 @@ type Config struct {
 	SnapshotEverySeconds   int                      `toml:"snapshot_every_seconds"`
 	StartWithSystem        bool                     `toml:"start_with_system"`
 	OnboardingDone         bool                     `toml:"onboarding_done"`
+	AlertsEnabled          bool                     `toml:"alerts_enabled"`
+	AlertThresholdPercent  int                      `toml:"alert_threshold_percent"`
 	Providers              map[string]ProviderEntry `toml:"providers"`
 }
 
@@ -38,8 +41,22 @@ func Default() *Config {
 	return &Config{
 		RefreshIntervalSeconds: defaultRefreshSeconds,
 		SnapshotEverySeconds:   defaultSnapshotSeconds,
+		AlertsEnabled:          true,
+		AlertThresholdPercent:  defaultAlertThreshold,
 		Providers:              map[string]ProviderEntry{},
 	}
+}
+
+// Threshold returns the configured alert threshold, clamped to a sane range.
+func (c *Config) Threshold() int {
+	t := c.AlertThresholdPercent
+	if t <= 0 {
+		t = defaultAlertThreshold
+	}
+	if t > 100 {
+		t = 100
+	}
+	return t
 }
 
 // RefreshInterval returns the configured polling interval.

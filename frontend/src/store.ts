@@ -96,6 +96,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     // Live events pushed from the Go side.
     onEvent('provider:update', (e) => get().applyEvent(e));
+    onEvent('alert:threshold', (e) => {
+      if (e.message) get().notify('error', e.message);
+    });
     onWidgetMode((active) => set({ widgetMode: active }));
     onEvent('cycle:start', () => set({ updatingAll: true }));
     onEvent('cycle:end', (e) => {

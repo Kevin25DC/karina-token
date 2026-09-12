@@ -366,6 +366,16 @@ func (a *App) SetStartWithSystem(enabled bool) error {
 	return a.svc.SetStartWithSystem(enabled)
 }
 
+// SetAlertsEnabled toggles usage-threshold alert notifications.
+func (a *App) SetAlertsEnabled(enabled bool) error {
+	return a.svc.SetAlertsEnabled(enabled)
+}
+
+// SetAlertThreshold updates the usage percentage that triggers an alert.
+func (a *App) SetAlertThreshold(percent int) error {
+	return a.svc.SetAlertThreshold(percent)
+}
+
 // CompleteOnboarding marks the first-run onboarding as finished.
 func (a *App) CompleteOnboarding() error {
 	return a.svc.CompleteOnboarding()

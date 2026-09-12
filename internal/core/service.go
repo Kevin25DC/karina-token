@@ -37,6 +37,9 @@ const (
 	EventCycleStart     = "cycle:start"
 	EventProviderUpdate = "provider:update"
 	EventCycleEnd       = "cycle:end"
+	// EventThreshold fires once when a provider's usage window crosses the
+	// configured alert threshold (and resets when it drops back below it).
+	EventThreshold = "alert:threshold"
 )
 
 // Event is an immutable notification for subscribers.
@@ -45,6 +48,7 @@ type Event struct {
 	Provider  domain.ProviderID      `json:"provider,omitempty"`
 	State     *domain.ProviderState  `json:"state,omitempty"`
 	AllStates []domain.ProviderState `json:"all_states,omitempty"`
+	Message   string                 `json:"message,omitempty"`
 }
 
 // Options configure a Service (tests inject fake pieces here).
@@ -54,6 +58,8 @@ type Options struct {
 	Logger          *slog.Logger
 	ProviderFactory func(domain.ProviderID) (api.Provider, error)
 	Autostart       func(enabled bool) error
+	// Notify shows a native OS notification. Optional; nil disables it.
+	Notify func(title, message string) error
 	// SkipManualAuto disables the automatic read of manual providers (tests).
 	SkipManualAuto bool
 }
@@ -96,6 +102,10 @@ type Service struct {
 	manualReadMu   sync.Mutex
 	lastManualRead map[domain.ProviderID]time.Time
 
+	notify  func(title, message string) error
+	alertMu sync.Mutex
+	alerted map[string]bool
+
 	listeners map[int]func(Event)
 	nextID    int
 
@@ -122,6 +132,7 @@ func New(logger *slog.Logger) *Service {
 		lastPt:         map[domain.ProviderID]*domain.HistoryPoint{},
 		manual:         map[domain.ProviderID]manualReading{},
 		lastManualRead: map[domain.ProviderID]time.Time{},
+		alerted:        map[string]bool{},
 		listeners:      map[int]func(Event){},
 	}
 }
@@ -158,6 +169,10 @@ func (s *Service) Open(opts Options) error {
 	s.newProvider = opts.ProviderFactory
 	if s.newProvider == nil {
 		s.newProvider = providers.New
+	}
+	s.notify = opts.Notify
+	if s.notify == nil {
+		s.notify = func(string, string) error { return nil }
 	}
 	s.creds = credentials.NewStore()
 	s.store, err = storage.New(s.baseDir)
@@ -285,6 +300,7 @@ func (s *Service) SetManualUsage(id domain.ProviderID, used, limit int64, window
 	s.persistSnapshot(id, state)
 	s.logger.Info("manual usage saved", "provider", id, "used", used, "limit", limit)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(state)})
+	s.checkThresholds(state)
 	return nil
 }
 
@@ -505,6 +521,7 @@ func (s *Service) refreshOne(ctx context.Context, id domain.ProviderID) {
 	s.persistSnapshot(id, state)
 	s.logger.Info("provider refreshed", "provider", id, "status", state.Status)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(state)})
+	s.checkThresholds(state)
 }
 
 // refreshManual reads the usage of a manual/experimental provider (Claude
@@ -548,6 +565,7 @@ func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
 	s.persistSnapshot(id, st)
 	s.logger.Info("manual provider refreshed", "provider", id, "percent", res.Percent)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(st)})
+	s.checkThresholds(st)
 }
 
 // manualStateFromResult converts an experimental read into a provider state
@@ -581,6 +599,83 @@ func (s *Service) manualStateFromResult(id domain.ProviderID, res claudesub.Resu
 		})
 	}
 	return st
+}
+
+// thresholdWindow is one usage figure evaluated against the alert threshold.
+type thresholdWindow struct {
+	label   string
+	percent float64
+	resetAt time.Time
+}
+
+// checkThresholds compares each usage window of a freshly updated state
+// against the configured alert threshold. It fires a notification (OS +
+// in-app event) the moment a window crosses the threshold, and re-arms
+// itself once the window drops back below it (e.g. after it resets), so the
+// user is alerted again on the next cycle.
+func (s *Service) checkThresholds(state domain.ProviderState) {
+	if state.Status != domain.StatusConnected {
+		return
+	}
+
+	s.mu.Lock()
+	enabled := s.cfg.AlertsEnabled
+	threshold := float64(s.cfg.Threshold())
+	s.mu.Unlock()
+	if !enabled {
+		return
+	}
+
+	var wins []thresholdWindow
+	if len(state.Windows) > 0 {
+		for _, w := range state.Windows {
+			if w.Percent < 0 {
+				continue
+			}
+			wins = append(wins, thresholdWindow{label: w.Label, percent: w.Percent, resetAt: w.ResetAt})
+		}
+	} else if state.UsageAvailable {
+		if p := domain.Percent(state.UsedTokens, state.LimitTokens); p >= 0 {
+			wins = append(wins, thresholdWindow{label: state.UsageWindow, percent: p, resetAt: state.ResetAt})
+		}
+	}
+
+	for _, w := range wins {
+		label := w.label
+		if label == "" {
+			label = "uso"
+		}
+		key := string(state.Provider) + "|" + label
+
+		s.alertMu.Lock()
+		if w.percent < threshold {
+			s.alerted[key] = false
+			s.alertMu.Unlock()
+			continue
+		}
+		if s.alerted[key] {
+			s.alertMu.Unlock()
+			continue
+		}
+		s.alerted[key] = true
+		s.alertMu.Unlock()
+
+		msg := fmt.Sprintf("%s al %.0f%%", label, w.percent)
+		if !w.resetAt.IsZero() {
+			msg += fmt.Sprintf(" · se reinicia %s", w.resetAt.Format("02/01 15:04"))
+		}
+		title := fmt.Sprintf("Karina · %s", state.DisplayName)
+		if err := s.notify(title, msg); err != nil {
+			s.logger.Debug("os notification failed", "error", err.Error())
+		}
+		s.logger.Info("threshold alert fired", "provider", state.Provider, "window", label, "percent", w.percent)
+		s.emit(Event{
+			Kind:     EventThreshold,
+			Provider: state.Provider,
+			State:    s.cloneState(state),
+			Message:  fmt.Sprintf("%s: %s", state.DisplayName, msg),
+		})
+	}
 }
 
 func parseTime(s string) time.Time {
@@ -817,6 +912,28 @@ func (s *Service) SetStartWithSystem(enabled bool) error {
 	return nil
 }
 
+// SetAlertsEnabled toggles threshold alert notifications.
+func (s *Service) SetAlertsEnabled(enabled bool) error {
+	s.mu.Lock()
+	s.cfg.AlertsEnabled = enabled
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// SetAlertThreshold updates the usage percentage that triggers an alert.
+func (s *Service) SetAlertThreshold(percent int) error {
+	if percent < 1 {
+		percent = 1
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	s.mu.Lock()
+	s.cfg.AlertThresholdPercent = percent
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
 // CompleteOnboarding marks the onboarding as finished.
 func (s *Service) CompleteOnboarding() error {
 	s.cfg.OnboardingDone = true
@@ -828,15 +945,21 @@ type ConfigSnapshot struct {
 	RefreshIntervalSeconds int    `json:"refresh_interval_seconds"`
 	StartWithSystem        bool   `json:"start_with_system"`
 	OnboardingDone         bool   `json:"onboarding_done"`
+	AlertsEnabled          bool   `json:"alerts_enabled"`
+	AlertThresholdPercent  int    `json:"alert_threshold_percent"`
 	DataDir                string `json:"data_dir"`
 }
 
 // Config returns a snapshot of the configuration (never contains keys).
 func (s *Service) Config() ConfigSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return ConfigSnapshot{
 		RefreshIntervalSeconds: s.cfg.RefreshIntervalSeconds,
 		StartWithSystem:        s.cfg.StartWithSystem,
 		OnboardingDone:         s.cfg.OnboardingDone,
+		AlertsEnabled:          s.cfg.AlertsEnabled,
+		AlertThresholdPercent:  s.cfg.Threshold(),
 		DataDir:                s.baseDir,
 	}
 }

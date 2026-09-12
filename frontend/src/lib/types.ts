@@ -104,6 +104,8 @@ export interface ConfigSnapshot {
   refresh_interval_seconds: number;
   start_with_system: boolean;
   onboarding_done: boolean;
+  alerts_enabled: boolean;
+  alert_threshold_percent: number;
   data_dir: string;
 }
 
@@ -118,6 +120,7 @@ export interface EventPayload {
   provider?: ProviderID;
   state?: ProviderState;
   all_states?: ProviderState[];
+  message?: string;
 }
 
 export interface AppInfo {

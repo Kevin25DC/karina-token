@@ -37,6 +37,8 @@ export function ClaudeOAuthComplete(code: string): Promise<ExperimentalSubRead>;
 export function LogClientError(message: string, stack: string): Promise<void>;
 export function SetRefreshInterval(seconds: number): Promise<void>;
 export function SetStartWithSystem(enabled: boolean): Promise<void>;
+export function SetAlertsEnabled(enabled: boolean): Promise<void>;
+export function SetAlertThreshold(percent: number): Promise<void>;
 export function CompleteOnboarding(): Promise<void>;
 export function EnterWidgetMode(): Promise<void>;
 export function ExitWidgetMode(): Promise<void>;

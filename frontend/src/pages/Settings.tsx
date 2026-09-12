@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import {
+  BellRing,
   Download,
   ExternalLink,
   Folder,
@@ -21,6 +22,7 @@ import { ProviderMark } from '@/components/ProviderMark';
 import { STATUS_COLORS } from '@/lib/theme';
 
 const INTERVALS = [10, 15, 30, 60, 120, 300];
+const THRESHOLDS = [70, 80, 85, 90, 95];
 
 const CAP_LABEL: Record<string, string> = {
   token_usage: 'Uso de tokens',
@@ -50,6 +52,7 @@ export function Settings() {
   const states = useStore((s) => s.states);
 
   const [savingInterval, setSavingInterval] = useState(false);
+  const [savingThreshold, setSavingThreshold] = useState(false);
   const [checking, setChecking] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
 
@@ -96,6 +99,30 @@ export function Settings() {
       );
     } catch (e) {
       notify('error', (e as Error).message);
+    }
+  }
+
+  async function toggleAlerts() {
+    const next = !config?.alerts_enabled;
+    try {
+      await api.setAlertsEnabled(next);
+      await reload();
+      notify('success', next ? 'Alertas de consumo activadas' : 'Alertas de consumo desactivadas');
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
+  async function changeThreshold(percent: number) {
+    setSavingThreshold(true);
+    try {
+      await api.setAlertThreshold(percent);
+      await reload();
+      notify('success', `Karina avisará al llegar al ${percent}% de uso`);
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setSavingThreshold(false);
     }
   }
 
@@ -169,6 +196,48 @@ export function Settings() {
               <span className="max-w-[280px] truncate font-mono text-xs text-zinc-500">
                 {config?.data_dir}
               </span>
+            </Row>
+          </Card>
+        </section>
+
+        {/* Alertas */}
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Alertas
+          </h2>
+          <Card className="divide-y divide-white/[0.05] p-1">
+            <Row
+              icon={<BellRing className="h-4 w-4" />}
+              title="Avisar al acercarse al límite"
+              desc="Notificación de Windows (y aviso dentro de la app) cuando un proveedor cruza el umbral de consumo."
+            >
+              <Toggle
+                on={config?.alerts_enabled ?? true}
+                onChange={() => void toggleAlerts()}
+              />
+            </Row>
+            <Row
+              icon={<Gauge className="h-4 w-4" />}
+              title="Umbral de aviso"
+              desc="Porcentaje de uso de la ventana (tokens, sesión, etc.) a partir del cual Karina avisa. Se vuelve a avisar tras el siguiente reinicio de la ventana."
+            >
+              <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {THRESHOLDS.map((p) => (
+                  <button
+                    key={p}
+                    disabled={savingThreshold || !(config?.alerts_enabled ?? true)}
+                    onClick={() => void changeThreshold(p)}
+                    className={cn(
+                      'rounded-lg px-2.5 py-1.5 font-mono text-xs transition-all disabled:opacity-50',
+                      config?.alert_threshold_percent === p
+                        ? 'bg-white/[0.12] text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-200',
+                    )}
+                  >
+                    {p}%
+                  </button>
+                ))}
+              </div>
             </Row>
           </Card>
         </section>
