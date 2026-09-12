@@ -25,3 +25,6 @@ Thumbs.db
 *.pem
 .env
 .env.*
+
+# Configuración local de Claude Code (no compartir en el repo)
+.claude/
