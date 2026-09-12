@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, Download, Info, TrendingUp } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { BarChart3, Download, Info, Printer, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
@@ -80,7 +81,13 @@ export function History() {
     }
   }
 
+  function exportPdf() {
+    if (!chartPoints.length) return;
+    window.print();
+  }
+
   return (
+    <>
     <div className="mx-auto w-full max-w-6xl px-8 pb-14">
       <header className="py-8">
         <div className="flex items-center gap-2">
@@ -156,6 +163,14 @@ export function History() {
               >
                 <Download className="h-3.5 w-3.5" /> Exportar CSV
               </Button>
+              <Button
+                variant="secondary"
+                className="h-9"
+                disabled={!chartPoints.length}
+                onClick={exportPdf}
+              >
+                <Printer className="h-3.5 w-3.5" /> Exportar PDF
+              </Button>
             </div>
           </div>
 
@@ -217,6 +232,30 @@ export function History() {
         </div>
       )}
     </div>
+
+    {res &&
+      chartPoints.length > 0 &&
+      createPortal(
+        <div className="hidden bg-white p-10 text-zinc-900 print:block">
+          <h1 className="text-xl font-semibold">Karina — Historial de uso</h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            {providerMeta?.name} · {SPANS.find((s) => s.id === span)?.label} ·
+            generado el {new Date().toLocaleString('es-ES')}
+          </p>
+          <PrintSummary res={res} />
+          <div className="mt-8">
+            <AreaChart
+              points={chartPoints}
+              value={(p) => pickMetric(p, res)}
+              color={color}
+              height={260}
+            />
+            <AxisLabels points={chartPoints} span={span} />
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 
   function noDataHint(id: string): string {
@@ -240,7 +279,7 @@ function pickMetric(
   return p.used_tokens !== undefined ? p.used_tokens : undefined;
 }
 
-function SummaryBar({ res }: { res: HistoryResult }) {
+function summaryStats(res: HistoryResult): Array<{ label: string; value: string }> {
   const pts = res.points;
   const values = pts
     .map((p) => pickMetric(p, res))
@@ -250,7 +289,7 @@ function SummaryBar({ res }: { res: HistoryResult }) {
   const isMoney = res.has_billing && !res.has_usage;
   const lastPt = pts[pts.length - 1];
 
-  const stats = [
+  return [
     {
       label: isMoney ? 'Saldo (último)' : 'Tokens usados',
       value: isMoney
@@ -265,15 +304,31 @@ function SummaryBar({ res }: { res: HistoryResult }) {
     },
     { label: 'Observaciones', value: String(values.length) },
   ];
+}
+
+function SummaryBar({ res }: { res: HistoryResult }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      {stats.map((s) => (
+      {summaryStats(res).map((s) => (
         <Card key={s.label} className="p-4">
           <p className="text-[11px] uppercase tracking-wide text-zinc-500">{s.label}</p>
           <p className="mt-1 truncate font-mono text-lg font-semibold text-zinc-100">
             {s.value}
           </p>
         </Card>
+      ))}
+    </div>
+  );
+}
+
+function PrintSummary({ res }: { res: HistoryResult }) {
+  return (
+    <div className="mt-6 grid grid-cols-3 gap-6">
+      {summaryStats(res).map((s) => (
+        <div key={s.label}>
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500">{s.label}</p>
+          <p className="mt-1 font-mono text-lg font-semibold text-zinc-900">{s.value}</p>
+        </div>
       ))}
     </div>
   );

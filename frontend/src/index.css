@@ -108,3 +108,20 @@ input[type='number'] {
 button {
   -webkit-user-drag: none;
 }
+
+/* Printing (Exportar PDF): the app shell is a fixed, absolutely-positioned
+   frame (see .surface-frame) meant for the on-screen frameless window, which
+   would clip a print job to one viewport-sized page. The printable report is
+   portaled directly under <body> (see History.tsx), so for print we hide the
+   whole interactive app and let html/body flow naturally so it paginates. */
+@media print {
+  #root {
+    display: none !important;
+  }
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+}
