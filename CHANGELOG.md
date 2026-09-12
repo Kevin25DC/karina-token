@@ -2,6 +2,16 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.5.0] - 2026-09-11
+
+### Añadido
+- **Exportar historial a CSV**: en la pestaña Historial, vuelca las observaciones
+  crudas del proveedor/periodo seleccionado a un archivo CSV (diálogo nativo de
+  guardar).
+- **Exportar historial a PDF**: usa el diálogo de impresión de Windows con una
+  vista de reporte (resumen + gráfico) para guardar como PDF vía "Microsoft
+  Print to PDF".
+
 ## [0.4.0] - 2026-09-11
 
 ### Añadido
