@@ -176,27 +176,6 @@ Todo vive en el directorio de datos de usuario (Windows: `%APPDATA%\Karina`):
 
 No declares `Capability` que el adaptador no pueda servir de verdad.
 
-## Estado actual (fases)
-
-- [x] Fase 0 — investigación de APIs oficiales y decisiones de arquitectura
-- [x] Fase 1 — arquitectura, dominio, interfaz `Provider`, dashboard + barras animadas + onboarding
-- [x] Fase 2 — keyring + adaptadores reales Anthropic/OpenAI/Gemini/DeepSeek (+Demo)
-- [x] Fase 3 — polling con backoff, updates en vivo (eventos), manejo de errores, cancelación por contexto
-- [x] Fase 4 — historial local por snapshots + gráficos (día / 7 / 30 días)
-- [x] Fase 5 (parcial) — autostart real por SO. **Pendiente:** system tray y mini-widget flotante
-- [x] Fase 6 — tests, build Windows (`Karina.exe`), README
-
-**Pendiente / roadmap:** icono de bandeja con menú (abrir/refresh/salir), ventana flotante “always-on-top”
-con providers seleccionables y posición recordada. El core ya emite eventos suficientes para alimentarlos
-(`cycle:start`, `provider:update`, `cycle:end`).
-
-## Documentación del proyecto
-
-- AGENTS.md — entorno, comandos y reglas de desarrollo (para agentes/devs).
-- docs/PROJECT-STATE.md — estado, decisiones y pendientes.
-- docs/claude-subscription-study.md — estudio de la suscripción de Claude.
-- CHANGELOG.md — historial de versiones.
-
 ## Limitaciones reales (resumen)
 
 - Ningún proveedor expone **consumo global de tokens** a una API key normal; solo Admin keys
