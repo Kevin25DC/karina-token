@@ -17,8 +17,12 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed build/appicon.png
-var appIcon []byte
+// trayIcon must be a real .ico (systray's Windows backend loads it via
+// LoadImage/IMAGE_ICON, which rejects a plain .png despite the misleading
+// "operation completed successfully" it reports on failure).
+//
+//go:embed build/windows/icon.ico
+var trayIcon []byte
 
 const appName = "Karina"
 const appVersion = "0.5.0"
@@ -32,7 +36,7 @@ func main() {
 		return
 	}
 
-	app := &App{svc: svc, log: log, icon: appIcon}
+	app := &App{svc: svc, log: log, icon: trayIcon}
 
 	err := wails.Run(&options.App{
 		Title:     appName,
