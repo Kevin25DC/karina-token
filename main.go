@@ -25,7 +25,7 @@ var assets embed.FS
 var trayIcon []byte
 
 const appName = "Karina"
-const appVersion = "0.5.0"
+const appVersion = "0.5.1"
 
 func main() {
 	log := logging.New(slog.LevelInfo)

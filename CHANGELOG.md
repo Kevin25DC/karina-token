@@ -2,6 +2,15 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.5.1] - 2026-09-11
+
+### Corregido
+- **Ícono de la bandeja del sistema y de la ventana/taskbar**: seguía siendo el
+  logo antiguo de "TokenPulse" (previo al rebranding a Karina). Se regeneró
+  `build/windows/icon.ico` a partir del logo actual y se corrigió el icono
+  incrustado que usa la bandeja (antes intentaba usar un PNG plano, que la API
+  de Windows rechaza silenciosamente).
+
 ## [0.5.0] - 2026-09-11
 
 ### Añadido
