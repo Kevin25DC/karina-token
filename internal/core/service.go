@@ -4,13 +4,16 @@
 package core
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -1120,6 +1123,45 @@ func (s *Service) History(id domain.ProviderID, span domain.HistorySpan) (Histor
 	}
 	res.Points = downsample(points, span, now)
 	return res, nil
+}
+
+// ExportHistoryCSV renders the raw (non-downsampled) local observations for
+// a provider and span as CSV bytes, one row per recorded snapshot.
+func (s *Service) ExportHistoryCSV(id domain.ProviderID, span domain.HistorySpan) ([]byte, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("el historial local no está disponible")
+	}
+	points, err := s.store.Points(id, span.Start(time.Now()))
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	_ = w.Write([]string{
+		"fecha_hora", "proveedor", "uso_disponible", "tokens_usados",
+		"limite_tokens", "tokens_restantes", "saldo", "moneda",
+		"limite_tasa_tokens", "restante_tasa_tokens",
+	})
+	for _, p := range points {
+		_ = w.Write([]string{
+			p.At.Local().Format("2006-01-02 15:04:05"),
+			string(id),
+			strconv.FormatBool(p.UsageAvailable),
+			strconv.FormatInt(p.UsedTokens, 10),
+			strconv.FormatInt(p.LimitTokens, 10),
+			strconv.FormatInt(p.RemainingTokens, 10),
+			strconv.FormatFloat(p.BalanceTotal, 'f', -1, 64),
+			p.BalanceCurrency,
+			strconv.FormatInt(p.RateLimitLimit, 10),
+			strconv.FormatInt(p.RateLimitRemaining, 10),
+		})
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, fmt.Errorf("generar csv: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // downsample keeps one "last value per bucket" so charts stay small.

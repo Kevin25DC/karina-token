@@ -43,3 +43,4 @@ export function CompleteOnboarding(): Promise<void>;
 export function EnterWidgetMode(): Promise<void>;
 export function ExitWidgetMode(): Promise<void>;
 export function History(provider: ProviderID, span: HistorySpan): Promise<HistoryResult>;
+export function ExportHistory(provider: ProviderID, span: HistorySpan): Promise<string>;

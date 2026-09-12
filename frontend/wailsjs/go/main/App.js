@@ -114,3 +114,7 @@ export function ExitWidgetMode() {
 export function History(provider, span) {
   return call('History', [provider, span]);
 }
+
+export function ExportHistory(provider, span) {
+  return call('ExportHistory', [provider, span]);
+}

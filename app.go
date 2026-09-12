@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -384,4 +385,36 @@ func (a *App) CompleteOnboarding() error {
 // History returns bucketed local observations for a provider and span.
 func (a *App) History(provider string, span string) (core.HistoryResult, error) {
 	return a.svc.History(domain.ProviderID(provider), domain.HistorySpan(span))
+}
+
+// ExportHistory opens a native "save as" dialog and writes the raw local
+// usage history for a provider/span to a CSV file. Returns the saved path,
+// or "" if the user cancels the dialog.
+func (a *App) ExportHistory(provider string, span string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("aplicación no iniciada")
+	}
+	data, err := a.svc.ExportHistoryCSV(domain.ProviderID(provider), domain.HistorySpan(span))
+	if err != nil {
+		return "", err
+	}
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Exportar historial",
+		DefaultFilename: fmt.Sprintf("karina-%s-%s-%s.csv", provider, span, time.Now().Format("2006-01-02")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "CSV (*.csv)", Pattern: "*.csv"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("guardar archivo: %w", err)
+	}
+	a.log.Info("history exported", "provider", provider, "span", span, "path", path)
+	return path, nil
 }

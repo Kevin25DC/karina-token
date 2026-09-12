@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, Info, TrendingUp } from 'lucide-react';
+import { BarChart3, Download, Info, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
@@ -27,6 +27,7 @@ export function History() {
   const meta = useStore((s) => s.meta);
   const cycleCount = useStore((s) => s.cycleCount);
   const setAdding = useStore((s) => s.setAdding);
+  const notify = useStore((s) => s.notify);
 
   const usable = useMemo(() => meta.filter((m) => m.enabled), [meta]);
   const [providerId, setProviderId] = useState<string>(usable[0]?.id ?? '');
@@ -34,6 +35,7 @@ export function History() {
   const [res, setRes] = useState<HistoryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (usable.length && !usable.some((p) => p.id === providerId)) {
@@ -62,6 +64,21 @@ export function History() {
 
   const color = HEX[providerMeta?.brand ?? ''] ?? '#a1a1aa';
   const chartPoints = res?.points ?? [];
+
+  async function exportCsv() {
+    if (!providerId) return;
+    setExporting(true);
+    try {
+      const path = await api.exportHistory(providerId, span);
+      if (path) {
+        notify('success', `Historial exportado a ${path}`);
+      }
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 pb-14">
@@ -113,21 +130,32 @@ export function History() {
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-              {SPANS.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setSpan(s.id)}
-                  className={cn(
-                    'rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
-                    s.id === span
-                      ? 'bg-white/[0.1] text-zinc-100'
-                      : 'text-zinc-500 hover:text-zinc-200',
-                  )}
-                >
-                  {s.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {SPANS.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setSpan(s.id)}
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                      s.id === span
+                        ? 'bg-white/[0.1] text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-200',
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="secondary"
+                className="h-9"
+                loading={exporting}
+                disabled={!chartPoints.length}
+                onClick={() => void exportCsv()}
+              >
+                <Download className="h-3.5 w-3.5" /> Exportar CSV
+              </Button>
             </div>
           </div>
 
