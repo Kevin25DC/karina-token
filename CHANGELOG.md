@@ -2,6 +2,14 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.4.0] - 2026-09-11
+
+### Añadido
+- **Alertas de consumo por umbral**: avisa (toast dentro de la app + intento de
+  notificación nativa de Windows) cuando una ventana de uso cruza un porcentaje
+  configurable (85% por defecto). Se rearma al bajar del umbral (p. ej. al
+  resetearse la ventana). Activable/desactivable y ajustable desde Ajustes.
+
 ## [0.3.0] - 2026-09-09
 
 ### Añadido

@@ -21,7 +21,7 @@ var assets embed.FS
 var appIcon []byte
 
 const appName = "Karina"
-const appVersion = "0.3.0"
+const appVersion = "0.4.0"
 
 func main() {
 	log := logging.New(slog.LevelInfo)
