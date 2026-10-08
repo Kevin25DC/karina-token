@@ -2,6 +2,46 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.7.0] - 2026-10-08 · Mascota Kari, widget flotante y costo por cliente
+
+Karina estrena mascota y un widget nuevo, y ahora dice cuánto cuesta tu uso
+de Claude Code por proyecto y por cliente.
+
+### Añadido
+- **Kari, la mascota de Karina**: reacciona a tu consumo (contenta, tranquila,
+  preocupada al acercarte al límite, agotada al llegar al 100 %), sigue el
+  cursor con los ojos y salta si le haces clic.
+- **Widget tipo «isla»**: cuelga del centro superior de la pantalla, se
+  despliega al pasar el cursor y se puede arrastrar a cualquier sitio; recuerda
+  dónde lo dejaste.
+- **Costo estimado en dólares** del uso de Claude Code, a precios de lista de
+  la API: total, por modelo, por proyecto y por día.
+- **Costo por cliente**: asigna proyectos a un cliente uno a uno o por carpeta
+  completa, y exporta un reporte CSV por cliente y proyecto.
+- **¿Te conviene tu plan?**: compara lo que pagas por tu suscripción con lo
+  que tu uso de 30 días habría costado en la API.
+- **Desglose por modelo** del consumo de Claude Code.
+- **Renovación automática de la sesión** de Claude Suscripción iniciada desde
+  Karina, sin tocar la sesión de Claude Code.
+
+### Cambiado
+- La opción **Claude Code** del menú solo aparece si usas Claude Code en el
+  equipo o añadiste un proveedor de Claude.
+- La lista **Por proyecto** está paginada.
+- Al conectar Claude Pro/Max queda un único campo para pegar el código.
+- Ante un **429/409** de Anthropic, Karina espera cada vez más antes de
+  reintentar en lugar de insistir cada 5 minutos.
+
+### Corregido
+- **Los tokens de Claude Code salían al doble**: cada respuesta se contaba una
+  vez por bloque de contenido. Ahora se cuenta una sola vez.
+- La pantalla de Claude Code tardaba varios segundos en cargar; ahora es casi
+  instantánea.
+
+### Notas
+- El costo es una estimación; una suscripción no se cobra por token.
+- El widget nuevo está probado en Windows. En macOS aún no se ha verificado.
+
 ## [0.6.1] - 2026-10-07
 
 Primera versión publicada también para **macOS** y compilada de forma

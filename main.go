@@ -21,7 +21,7 @@ var assets embed.FS
 // icon_windows.go, icon_darwin.go and icon_other.go.
 
 const appName = "Karina"
-const appVersion = "0.6.1"
+const appVersion = "0.7.0"
 
 func main() {
 	log := logging.New(slog.LevelInfo)
