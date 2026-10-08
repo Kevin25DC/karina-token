@@ -1,11 +1,29 @@
-import { useState } from 'react';
-import { BadgeDollarSign, Download, FolderTree, Scale, Tag, Users, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  BadgeDollarSign,
+  Clock,
+  Download,
+  FileText,
+  FolderTree,
+  Scale,
+  Tag,
+  Users,
+  Wallet,
+  X,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
-import { formatMoney, formatTokens } from '@/lib/format';
+import { formatHours, formatMoney, formatTokens } from '@/lib/format';
 import { Card } from '@/components/primitives';
-import type { ClaudeCodeUsageSummary, HistorySpan, UsageTokens } from '@/lib/types';
+import type {
+  ClaudeCodeUsageSummary,
+  ClientBudget,
+  ClientReport,
+  ReportPeriod,
+  UsageTokens,
+} from '@/lib/types';
 
 function totalOf(t: UsageTokens): number {
   return t.input_tokens + t.output_tokens + t.cache_creation_tokens + t.cache_read_tokens;
@@ -151,54 +169,45 @@ function Figure({
   );
 }
 
-/** Totales por cliente del periodo seleccionado, con exportación a CSV. */
+const REPORT_PERIODS: Array<{ id: ReportPeriod; label: string }> = [
+  { id: 'this_month', label: 'Este mes' },
+  { id: 'last_month', label: 'Mes pasado' },
+  { id: '7d', label: 'Últimos 7 días' },
+  { id: '30d', label: 'Últimos 30 días' },
+  { id: 'today', label: 'Hoy' },
+];
+
+const IDLE_GAPS = [5, 10, 15, 30];
+
+const fieldClass =
+  'rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20';
+
+/**
+ * Clientes del periodo seleccionado: horas, costo y presupuesto mensual de
+ * cada uno, más el reporte (PDF/CSV) y las reglas por carpeta.
+ */
 export function ClientsCard({
   summary,
-  span,
   onChanged,
 }: {
   summary: ClaudeCodeUsageSummary;
-  span: HistorySpan;
   onChanged: () => void;
 }) {
-  const notify = useStore((s) => s.notify);
-  const [exporting, setExporting] = useState(false);
+  const budgets = useStore((s) => s.budgets);
   const clients = summary.clients ?? [];
   const hasNamed = clients.some((c) => c.name !== '');
   const maxCost = Math.max(0.0001, ...clients.map((c) => c.cost_usd));
 
-  async function exportReport() {
-    setExporting(true);
-    try {
-      const path = await api.exportClientReport(span);
-      if (path) notify('success', `Reporte exportado a ${path}`);
-    } catch (e) {
-      notify('error', (e as Error).message);
-    } finally {
-      setExporting(false);
-    }
-  }
-
   return (
     <Card className="p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-            <Users className="h-4 w-4 text-violet-300" />
-            Por cliente
-          </h2>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Agrupa tus proyectos por cliente o etiqueta para saber cuánto consume cada uno.
-          </p>
-        </div>
-        <button
-          onClick={() => void exportReport()}
-          disabled={exporting}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs font-medium text-zinc-300 transition-all hover:bg-white/[0.07] disabled:opacity-60"
-        >
-          <Download className="h-3.5 w-3.5" /> Exportar reporte (CSV)
-        </button>
-      </div>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+        <Users className="h-4 w-4 text-violet-300" />
+        Por cliente
+      </h2>
+      <p className="mt-0.5 text-xs text-zinc-500">
+        Horas trabajadas y costo de IA de cada cliente en el periodo, con su presupuesto del
+        mes.
+      </p>
 
       {!hasNamed ? (
         <p className="mt-4 text-xs leading-relaxed text-zinc-500">
@@ -206,7 +215,7 @@ export function ClientsCard({
           botón <span className="text-zinc-300">Cliente</span> de cada proyecto.
         </p>
       ) : (
-        <div className="mt-5 space-y-3">
+        <div className="mt-5 space-y-4">
           {clients.map((c) => (
             <div key={c.name || '—'}>
               <div className="flex items-center justify-between gap-3 text-sm">
@@ -219,6 +228,7 @@ export function ClientsCard({
                   {c.name || 'Sin cliente'}
                 </span>
                 <span className="shrink-0 font-mono text-xs text-zinc-400">
+                  <span className="text-zinc-200">{formatHours(c.active_seconds)}</span> ·{' '}
                   <span className="text-zinc-200">{formatMoney(c.cost_usd)}</span> ·{' '}
                   {formatTokens(totalOf(c.tokens))} tokens · {c.projects}{' '}
                   {c.projects === 1 ? 'proyecto' : 'proyectos'}
@@ -230,15 +240,399 @@ export function ClientsCard({
                   style={{ width: `${Math.max(2, (c.cost_usd / maxCost) * 100)}%` }}
                 />
               </div>
+              {c.name && (
+                <BudgetRow
+                  client={c.name}
+                  budget={budgets.find((b) => b.name === c.name)}
+                />
+              )}
             </div>
           ))}
         </div>
       )}
 
+      <ReportControls summary={summary} onChanged={onChanged} />
       <FolderRules summary={summary} onChanged={onChanged} />
     </Card>
   );
 }
+
+/** Presupuesto mensual de un cliente: barra de consumo del mes y edición. */
+function BudgetRow({ client, budget }: { client: string; budget?: ClientBudget }) {
+  const notify = useStore((s) => s.notify);
+  const reloadBudgets = useStore((s) => s.reloadBudgets);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+
+  async function commit() {
+    setEditing(false);
+    const usd = value.trim() === '' ? 0 : Number(value.replace(',', '.'));
+    if (!Number.isFinite(usd) || usd < 0) {
+      notify('error', 'Escribe un importe válido en dólares');
+      return;
+    }
+    if (usd === (budget?.budget_usd ?? 0)) return;
+    try {
+      await api.setClientBudget(client, usd);
+      await reloadBudgets();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-500">
+        <span>Presupuesto mensual (USD):</span>
+        <input
+          autoFocus
+          value={value}
+          inputMode="decimal"
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          placeholder="vacío = sin presupuesto"
+          aria-label={`Presupuesto mensual de ${client}`}
+          className={cn(fieldClass, 'w-44 py-1')}
+        />
+      </div>
+    );
+  }
+
+  const open = () => {
+    setValue(budget ? String(budget.budget_usd) : '');
+    setEditing(true);
+  };
+
+  if (!budget) {
+    return (
+      <button
+        onClick={open}
+        className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-300"
+      >
+        <Wallet className="h-3 w-3" /> Poner presupuesto mensual
+      </button>
+    );
+  }
+
+  const pct = Math.round(budget.percent);
+  const tone =
+    budget.percent >= 100 ? 'bg-rose-400' : budget.percent >= 80 ? 'bg-amber-400' : 'bg-emerald-400';
+  return (
+    <button
+      onClick={open}
+      title="Cambiar presupuesto"
+      className="mt-2 block w-full rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
+    >
+      <span className="flex items-center justify-between gap-3 text-[11px]">
+        <span className="inline-flex items-center gap-1 text-zinc-500">
+          <Wallet className="h-3 w-3" /> Presupuesto de este mes
+        </span>
+        <span
+          className={cn(
+            'font-mono',
+            budget.percent >= 100
+              ? 'text-rose-300'
+              : budget.percent >= 80
+                ? 'text-amber-300'
+                : 'text-zinc-400',
+          )}
+        >
+          {formatMoney(budget.spent_usd)} de {formatMoney(budget.budget_usd)} · {pct}%
+        </span>
+      </span>
+      <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/[0.06]">
+        <span
+          className={cn('block h-full rounded-full', tone)}
+          style={{ width: `${Math.min(100, Math.max(2, budget.percent))}%` }}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** Reporte por cliente: periodo, cliente, nombre del negocio y exportación. */
+function ReportControls({
+  summary,
+  onChanged,
+}: {
+  summary: ClaudeCodeUsageSummary;
+  onChanged: () => void;
+}) {
+  const notify = useStore((s) => s.notify);
+  const reload = useStore((s) => s.reload);
+  const savedName = useStore((s) => s.config?.report_business_name ?? '');
+  const idleGap = useStore((s) => s.config?.idle_gap_minutes ?? 10);
+
+  const [period, setPeriod] = useState<ReportPeriod>('this_month');
+  const [client, setClient] = useState('');
+  const [name, setName] = useState(savedName);
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState<ClientReport | null>(null);
+
+  useEffect(() => setName(savedName), [savedName]);
+
+  // El reporte se pinta en un portal oculto y entonces se abre la impresión
+  // (de ahí «Guardar como PDF»).
+  useEffect(() => {
+    if (!report) return;
+    const done = () => setReport(null);
+    window.addEventListener('afterprint', done, { once: true });
+    const timer = window.setTimeout(() => window.print(), 80);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', done);
+    };
+  }, [report]);
+
+  async function saveName() {
+    if (name.trim() === savedName) return;
+    try {
+      await api.setReportBusinessName(name);
+      await reload();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
+  async function exportPdf() {
+    setBusy(true);
+    try {
+      await saveName();
+      const data = await api.clientReport(period);
+      const projects = (data.summary.projects ?? []).filter(
+        (p) => client === '' || p.client === client,
+      );
+      if (projects.length === 0) {
+        notify('info', 'No hay actividad de ese cliente en el periodo elegido');
+        return;
+      }
+      setReport(data);
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportCsv() {
+    setBusy(true);
+    try {
+      const path = await api.exportClientReport(period);
+      if (path) notify('success', `Reporte exportado a ${path}`);
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeGap(minutes: number) {
+    try {
+      await api.setIdleGapMinutes(minutes);
+      await reload();
+      onChanged();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
+  const buttonClass =
+    'flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-zinc-300 transition-all hover:bg-white/[0.07] disabled:opacity-50';
+
+  return (
+    <div className="mt-6 border-t border-white/[0.05] pt-5">
+      <h3 className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
+        <FileText className="h-3.5 w-3.5 text-violet-300" />
+        Reporte para el cliente
+      </h3>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+        Horas trabajadas, proyectos y costo de IA del periodo. El PDF abre el diálogo de
+        impresión: elige «Guardar como PDF».
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value as ReportPeriod)}
+          aria-label="Periodo del reporte"
+          className={fieldClass}
+        >
+          {REPORT_PERIODS.map((p) => (
+            <option key={p.id} value={p.id} className="bg-zinc-900">
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={client}
+          onChange={(e) => setClient(e.target.value)}
+          aria-label="Cliente del reporte"
+          className={fieldClass}
+        >
+          <option value="" className="bg-zinc-900">
+            Todos los clientes
+          </option>
+          {(summary.client_names ?? []).map((n) => (
+            <option key={n} value={n} className="bg-zinc-900">
+              {n}
+            </option>
+          ))}
+        </select>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => void saveName()}
+          maxLength={80}
+          placeholder="Tu nombre o empresa (encabezado)"
+          aria-label="Nombre que encabeza el reporte"
+          className={cn(fieldClass, 'min-w-0 flex-1')}
+        />
+        <button onClick={() => void exportPdf()} disabled={busy} className={buttonClass}>
+          <FileText className="h-3.5 w-3.5" /> PDF
+        </button>
+        <button onClick={() => void exportCsv()} disabled={busy} className={buttonClass}>
+          <Download className="h-3.5 w-3.5" /> CSV
+        </button>
+      </div>
+
+      <p className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+        <Clock className="h-3 w-3" />
+        Las horas cuentan el tiempo entre respuestas de Claude Code; una pausa mayor de
+        <select
+          value={idleGap}
+          onChange={(e) => void changeGap(Number(e.target.value))}
+          aria-label="Pausa que corta un tramo de trabajo"
+          className={cn(fieldClass, 'px-1.5 py-0.5')}
+        >
+          {[...new Set([...IDLE_GAPS, idleGap])]
+            .sort((a, b) => a - b)
+            .map((m) => (
+              <option key={m} value={m} className="bg-zinc-900">
+                {m} min
+              </option>
+            ))}
+        </select>
+        corta el tramo.
+      </p>
+
+      {report && createPortal(<PrintableReport report={report} client={client} />, document.body)}
+    </div>
+  );
+}
+
+/** Documento imprimible (solo visible al imprimir). */
+function PrintableReport({ report, client }: { report: ClientReport; client: string }) {
+  const s = report.summary;
+  const projects = (s.projects ?? []).filter((p) => client === '' || p.client === client);
+  const groups = new Map<string, typeof projects>();
+  for (const p of projects) {
+    const key = p.client || 'Sin cliente';
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  const names = [...groups.keys()].sort((a, b) =>
+    a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b),
+  );
+  const sum = (list: typeof projects) => ({
+    seconds: list.reduce((n, p) => n + p.active_seconds, 0),
+    cost: list.reduce((n, p) => n + p.cost_usd, 0),
+    tokens: list.reduce((n, p) => n + totalOf(p.tokens), 0),
+    sessions: list.reduce((n, p) => n + p.sessions, 0),
+  });
+  const total = sum(projects);
+  const cell = 'border-b border-zinc-200 px-2 py-1.5';
+
+  return (
+    <div className="hidden bg-white p-10 text-zinc-900 print:block">
+      <div className="flex items-start justify-between gap-6 border-b-2 border-zinc-900 pb-4">
+        <div>
+          {report.business_name && (
+            <p className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
+              {report.business_name}
+            </p>
+          )}
+          <h1 className="mt-1 text-2xl font-semibold">Reporte de trabajo asistido por IA</h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            {client ? `Cliente: ${client}` : 'Todos los clientes'} · {report.period_label}
+          </p>
+        </div>
+        <p className="shrink-0 text-right text-xs text-zinc-500">
+          Generado el
+          <br />
+          {new Date(report.generated_at).toLocaleDateString('es-ES', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })}
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-4 gap-4">
+        {[
+          ['Horas trabajadas', formatHours(total.seconds)],
+          ['Costo de IA (estimado)', formatMoney(total.cost)],
+          ['Proyectos', String(projects.length)],
+          ['Sesiones', String(total.sessions)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-zinc-300 p-3">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</p>
+            <p className="mt-1 text-lg font-semibold">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {names.map((name) => {
+        const list = groups.get(name) ?? [];
+        const sub = sum(list);
+        return (
+          <div key={name} className="mt-8" style={{ breakInside: 'avoid' }}>
+            {client === '' && <h2 className="text-base font-semibold">{name}</h2>}
+            <table className="mt-2 w-full table-fixed border-collapse text-left text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-zinc-500">
+                  <th className={cn(cell, 'w-[40%]')}>Proyecto</th>
+                  <th className={cn(cell, 'text-right')}>Sesiones</th>
+                  <th className={cn(cell, 'text-right')}>Horas</th>
+                  <th className={cn(cell, 'text-right')}>Tokens</th>
+                  <th className={cn(cell, 'text-right')}>Costo est.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((p) => (
+                  <tr key={p.path}>
+                    <td className={cell}>{p.label}</td>
+                    <td className={cn(cell, 'text-right')}>{p.sessions}</td>
+                    <td className={cn(cell, 'text-right')}>{formatHours(p.active_seconds)}</td>
+                    <td className={cn(cell, 'text-right')}>{formatTokens(totalOf(p.tokens))}</td>
+                    <td className={cn(cell, 'text-right')}>{formatMoney(p.cost_usd)}</td>
+                  </tr>
+                ))}
+                <tr className="font-semibold">
+                  <td className={cell}>Total{client === '' ? ` ${name}` : ''}</td>
+                  <td className={cn(cell, 'text-right')}>{sub.sessions}</td>
+                  <td className={cn(cell, 'text-right')}>{formatHours(sub.seconds)}</td>
+                  <td className={cn(cell, 'text-right')}>{formatTokens(sub.tokens)}</td>
+                  <td className={cn(cell, 'text-right')}>{formatMoney(sub.cost)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+
+      <p className="mt-8 text-[10px] leading-relaxed text-zinc-500">
+        Las horas se calculan a partir de la actividad registrada por Claude Code en el equipo:
+        cuentan el tiempo entre respuestas consecutivas con pausas de hasta{' '}
+        {s.idle_gap_minutes} minutos. El costo es una estimación a precios de lista de la API de
+        Anthropic al {s.prices_as_of} y no constituye una factura. Generado con Karina.
+      </p>
+    </div>
+  );
+}
+
 
 /** Carpeta que contiene `path` (acepta separadores de Windows y de Unix). */
 function parentOf(path: string): string {

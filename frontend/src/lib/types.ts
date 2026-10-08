@@ -114,6 +114,8 @@ export interface ClaudeCodeProjectUsage {
   tokens: UsageTokens;
   /** Costo estimado a precios de lista de la API. */
   cost_usd: number;
+  /** Tiempo de trabajo estimado en el proyecto, en segundos. */
+  active_seconds: number;
   /** Cliente o etiqueta asignado por el usuario ('' si no tiene). */
   client: string;
   /** true si el cliente viene de una regla por carpeta y no del proyecto. */
@@ -136,6 +138,27 @@ export interface ClaudeCodeClientUsage {
   sessions: number;
   tokens: UsageTokens;
   cost_usd: number;
+  /** Suma del tiempo activo de sus proyectos, en segundos. */
+  active_seconds: number;
+}
+
+/** Periodo de un reporte por cliente. */
+export type ReportPeriod = HistorySpan | 'this_month' | 'last_month';
+
+export interface ClientReport {
+  period: ReportPeriod;
+  period_label: string;
+  business_name: string;
+  generated_at: string;
+  summary: ClaudeCodeUsageSummary;
+}
+
+/** Presupuesto mensual de un cliente y lo consumido en el mes en curso. */
+export interface ClientBudget {
+  name: string;
+  budget_usd: number;
+  spent_usd: number;
+  percent: number;
 }
 
 export interface ClaudeCodeModelUsage {
@@ -166,6 +189,10 @@ export interface ClaudeCodeUsageSummary {
   /** Tokens de modelos sin precio conocido (no entran en cost_usd). */
   unpriced_tokens: number;
   prices_as_of: string;
+  /** Tiempo activo sumado por proyecto, en segundos. */
+  active_seconds: number;
+  /** Pausa (min) a partir de la cual se considera que dejaste de trabajar. */
+  idle_gap_minutes: number;
   clients: ClaudeCodeClientUsage[] | null;
   client_names: string[] | null;
   client_folders: ClaudeCodeFolderRule[] | null;
@@ -173,6 +200,8 @@ export interface ClaudeCodeUsageSummary {
 
 export interface ConfigSnapshot {
   refresh_interval_seconds: number;
+  /** Cada cuánto se consulta Claude Pro/Max (aparte y más despacio). */
+  subscription_interval_seconds: number;
   start_with_system: boolean;
   onboarding_done: boolean;
   alerts_enabled: boolean;
@@ -182,6 +211,10 @@ export interface ConfigSnapshot {
   data_dir: string;
   /** Precio mensual del plan de Claude del usuario (0 = sin definir). */
   subscription_monthly_usd: number;
+  /** Pausa (min) que corta un tramo de trabajo al medir horas. */
+  idle_gap_minutes: number;
+  /** Nombre que encabeza los reportes por cliente. */
+  report_business_name: string;
 }
 
 export interface TestResult {

@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type {
   ClaudeCodeUsageSummary,
+  ClientBudget,
   ConfigSnapshot,
   HistoryResult,
   ProviderMeta,
@@ -17,6 +18,7 @@ export interface BridgeData {
   history: HistoryResult;
   claudeCode: ClaudeCodeUsageSummary;
   claudeCodeDetected: boolean;
+  budgets: ClientBudget[];
 }
 
 const zeroTokens = {
@@ -54,6 +56,7 @@ export const anthropicState: ProviderState = {
 export const defaults: BridgeData = {
   config: {
     refresh_interval_seconds: 300,
+    subscription_interval_seconds: 300,
     start_with_system: false,
     onboarding_done: true,
     alerts_enabled: false,
@@ -62,6 +65,8 @@ export const defaults: BridgeData = {
     webhook_preview: '',
     data_dir: '/tmp/karina-e2e',
     subscription_monthly_usd: 0,
+    idle_gap_minutes: 10,
+    report_business_name: '',
   },
   providers: [],
   states: [],
@@ -89,11 +94,14 @@ export const defaults: BridgeData = {
     cost_usd: 0,
     unpriced_tokens: 0,
     prices_as_of: '2026-01-01',
+    active_seconds: 0,
+    idle_gap_minutes: 10,
     clients: null,
     client_names: null,
     client_folders: null,
   },
   claudeCodeDetected: false,
+  budgets: [],
 };
 
 /**
@@ -114,6 +122,14 @@ export async function installBridge(page: Page, overrides: Partial<BridgeData> =
       History: d.history,
       ClaudeCodeUsage: d.claudeCode,
       ClaudeCodeDetected: d.claudeCodeDetected,
+      ClientBudgets: d.budgets,
+      ClientReport: {
+        period: 'this_month',
+        period_label: 'octubre de 2026 (hasta hoy)',
+        business_name: '',
+        generated_at: '2026-10-08T12:00:00Z',
+        summary: d.claudeCode,
+      },
       ExportHistory: '/tmp/karina-e2e/historial.csv',
     };
     const w = window as unknown as Record<string, unknown>;

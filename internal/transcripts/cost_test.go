@@ -49,6 +49,53 @@ func TestScanCountsEachResponseOnceAndPricesIt(t *testing.T) {
 	}
 }
 
+func TestActiveTimeAndRange(t *testing.T) {
+	root := t.TempDir()
+	// Two sessions on /a overlap; /b has a long break in the middle.
+	writeFile(t, filepath.Join(root, "-a", "s1.jsonl"), []string{
+		assistantLine("/a", "s1", "2026-09-01T10:00:00.000Z", 1, 0, 0, 0),
+		assistantLine("/a", "s1", "2026-09-01T10:08:00.000Z", 1, 0, 0, 0),
+	})
+	writeFile(t, filepath.Join(root, "-a", "s2.jsonl"), []string{
+		assistantLine("/a", "s2", "2026-09-01T10:04:00.000Z", 1, 0, 0, 0),
+		assistantLine("/a", "s2", "2026-09-01T10:12:00.000Z", 1, 0, 0, 0),
+	})
+	writeFile(t, filepath.Join(root, "-b", "s3.jsonl"), []string{
+		assistantLine("/b", "s3", "2026-09-01T10:00:00.000Z", 1, 0, 0, 0),
+		assistantLine("/b", "s3", "2026-09-01T10:05:00.000Z", 1, 0, 0, 0),
+		assistantLine("/b", "s3", "2026-09-01T11:00:00.000Z", 1, 0, 0, 0), // after a break
+		assistantLine("/b", "s3", "2026-09-02T09:00:00.000Z", 1, 0, 0, 0), // outside Until
+	})
+
+	until, _ := time.Parse(time.RFC3339, "2026-09-02T00:00:00Z")
+	summary, err := ScanRange(root, Range{Until: until})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, p := range summary.Projects {
+		got[p.Path] = p.ActiveSeconds
+	}
+	// /a: 10:00 -> 10:12 merged across sessions = 12 min. /b: 5 min.
+	if got["/a"] != 12*60 || got["/b"] != 5*60 {
+		t.Fatalf("active = %v", got)
+	}
+	if summary.ActiveSeconds != 17*60 || summary.IdleGapMinutes != 10 {
+		t.Fatalf("total = %d gap = %d", summary.ActiveSeconds, summary.IdleGapMinutes)
+	}
+	if summary.Total.Input != 7 {
+		t.Fatalf("Until not applied: input = %d", summary.Total.Input)
+	}
+
+	// A longer idle gap bridges the break on /b.
+	summary, _ = ScanRange(root, Range{Until: until, IdleGap: time.Hour})
+	for _, p := range summary.Projects {
+		if p.Path == "/b" && p.ActiveSeconds != 60*60 {
+			t.Fatalf("/b with 1h gap = %d", p.ActiveSeconds)
+		}
+	}
+}
+
 func TestAssignClientsByFolder(t *testing.T) {
 	s := Summary{Projects: []ProjectUsage{
 		{Path: `C:\Work\Acme\web`, CostUSD: 1},

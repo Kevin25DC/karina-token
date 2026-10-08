@@ -18,6 +18,9 @@ const (
 	defaultRefreshSeconds  = 30
 	defaultSnapshotSeconds = 60
 	defaultAlertThreshold  = 85
+	defaultIdleGapMinutes  = 10
+	// 5 minutes is what usage monitors commonly use for this endpoint.
+	defaultSubscriptionSeconds = 300
 )
 
 // ProviderEntry holds per-provider local settings.
@@ -39,6 +42,19 @@ type Config struct {
 	WidgetMoved   bool `toml:"widget_moved"`
 	WidgetCenterX int  `toml:"widget_center_x"`
 	WidgetTopY    int  `toml:"widget_top_y"`
+	// SubscriptionIntervalSeconds is how often the Claude subscription usage
+	// is read (0 = default). Its endpoint rate-limits frequent polling, so it
+	// has its own, slower pace than RefreshIntervalSeconds.
+	SubscriptionIntervalSeconds int `toml:"subscription_interval_seconds"`
+	// IdleGapMinutes is the pause that ends a stretch of work when measuring
+	// time worked on Claude Code projects (0 = default).
+	IdleGapMinutes int `toml:"idle_gap_minutes"`
+	// ReportBusinessName is printed at the top of client reports.
+	ReportBusinessName string `toml:"report_business_name"`
+	// ClientBudgets maps a client to its monthly budget in USD. BudgetAlerts
+	// remembers the highest alert level already sent, keyed "YYYY-MM|client".
+	ClientBudgets map[string]float64 `toml:"client_budgets"`
+	BudgetAlerts  map[string]int     `toml:"budget_alerts"`
 	// SubscriptionMonthlyUSD is what the user pays per month for their Claude
 	// plan; 0 means not set. Used only to compare against API-equivalent cost.
 	SubscriptionMonthlyUSD float64 `toml:"subscription_monthly_usd"`
@@ -89,6 +105,29 @@ func (c *Config) SnapshotInterval() time.Duration {
 		s = defaultSnapshotSeconds
 	}
 	return time.Duration(s) * time.Second
+}
+
+// MinSubscriptionSeconds is the fastest the Claude subscription may be read.
+const MinSubscriptionSeconds = 120
+
+// SubscriptionInterval returns how often the Claude subscription is read.
+func (c *Config) SubscriptionInterval() time.Duration {
+	s := c.SubscriptionIntervalSeconds
+	if s <= 0 {
+		s = defaultSubscriptionSeconds
+	}
+	if s < MinSubscriptionSeconds {
+		s = MinSubscriptionSeconds
+	}
+	return time.Duration(s) * time.Second
+}
+
+// IdleGap returns, in minutes, the pause that ends a stretch of work.
+func (c *Config) IdleGap() int {
+	if c.IdleGapMinutes <= 0 {
+		return defaultIdleGapMinutes
+	}
+	return c.IdleGapMinutes
 }
 
 // Enabled reports whether a provider is enabled in the configuration.

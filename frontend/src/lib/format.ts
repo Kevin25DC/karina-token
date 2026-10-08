@@ -41,6 +41,16 @@ export function formatMoney(n: number, currency?: string): string {
   return v;
 }
 
+/** Duración legible: "45 min", "3 h 20 min". */
+export function formatHours(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0 min';
+  const totalMin = Math.round(seconds / 60);
+  if (totalMin < 60) return `${totalMin} min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 export function timeAgo(iso?: string, now = Date.now()): string {
   if (!iso) return 'nunca';
   const t = new Date(iso).getTime();

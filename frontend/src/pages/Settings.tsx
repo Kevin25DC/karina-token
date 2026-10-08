@@ -10,6 +10,7 @@ import {
   Power,
   RefreshCw,
   ShieldCheck,
+  Timer,
   Webhook,
 } from 'lucide-react';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
@@ -23,6 +24,8 @@ import { ProviderMark } from '@/components/ProviderMark';
 import { STATUS_COLORS } from '@/lib/theme';
 
 const INTERVALS = [10, 15, 30, 60, 120, 300];
+/** Claude Pro/Max: mínimo 2 minutos, el endpoint de uso limita las consultas. */
+const SUBSCRIPTION_INTERVALS = [120, 300, 600, 900, 1800];
 const THRESHOLDS = [70, 80, 85, 90, 95];
 
 const CAP_LABEL: Record<string, string> = {
@@ -85,6 +88,19 @@ export function Settings() {
       await api.setRefreshInterval(seconds);
       await reload();
       notify('success', `Auto-actualización configurada cada ${seconds}s`);
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setSavingInterval(false);
+    }
+  }
+
+  async function changeSubscriptionInterval(seconds: number) {
+    setSavingInterval(true);
+    try {
+      await api.setSubscriptionInterval(seconds);
+      await reload();
+      notify('success', `Claude Pro/Max se consultará cada ${seconds / 60} min`);
     } catch (e) {
       notify('error', (e as Error).message);
     } finally {
@@ -202,6 +218,29 @@ export function Settings() {
                     )}
                   >
                     {s < 60 ? `${s}s` : `${s / 60}m`}
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row
+              icon={<Timer className="h-4 w-4" />}
+              title="Intervalo de Claude Pro/Max"
+              desc="La suscripción se consulta aparte y más despacio: Anthropic bloquea (error 429) las consultas frecuentes de uso. 5 minutos es lo habitual."
+            >
+              <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {SUBSCRIPTION_INTERVALS.map((s) => (
+                  <button
+                    key={s}
+                    disabled={savingInterval}
+                    onClick={() => void changeSubscriptionInterval(s)}
+                    className={cn(
+                      'rounded-lg px-2.5 py-1.5 font-mono text-xs transition-all disabled:opacity-50',
+                      config?.subscription_interval_seconds === s
+                        ? 'bg-white/[0.12] text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-200',
+                    )}
+                  >
+                    {s / 60}m
                   </button>
                 ))}
               </div>

@@ -535,14 +535,48 @@ func (a *App) SetSubscriptionPrice(usd float64) error {
 	return a.svc.SetSubscriptionPrice(usd)
 }
 
+// ClientReport returns the Claude Code usage of a period ("this_month",
+// "last_month", "today", "7d", "30d") grouped by client, for the printable
+// report.
+func (a *App) ClientReport(period string) (core.ClientReport, error) {
+	return a.svc.ClientReport(period)
+}
+
+// ClientBudgets returns each client's monthly budget and month-to-date spend.
+func (a *App) ClientBudgets() ([]core.ClientBudget, error) {
+	return a.svc.ClientBudgets()
+}
+
+// SetClientBudget sets a client's monthly budget in USD (0 removes it).
+func (a *App) SetClientBudget(client string, usd float64) error {
+	return a.svc.SetClientBudget(client, usd)
+}
+
+// SetSubscriptionInterval sets how often the Claude subscription usage is
+// read (seconds). It is separate from, and slower than, the general interval.
+func (a *App) SetSubscriptionInterval(seconds int) error {
+	return a.svc.SetSubscriptionInterval(seconds)
+}
+
+// SetIdleGapMinutes sets the pause that ends a stretch of work when
+// measuring time worked.
+func (a *App) SetIdleGapMinutes(minutes int) error {
+	return a.svc.SetIdleGapMinutes(minutes)
+}
+
+// SetReportBusinessName sets the name printed at the top of client reports.
+func (a *App) SetReportBusinessName(name string) error {
+	return a.svc.SetReportBusinessName(name)
+}
+
 // ExportClientReport opens a native "save as" dialog and writes the Claude
-// Code usage of a span, grouped by client and project, to a CSV file.
+// Code usage of a period, grouped by client and project, to a CSV file.
 // Returns the saved path, or "" if the user cancels the dialog.
 func (a *App) ExportClientReport(span string) (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("aplicación no iniciada")
 	}
-	data, err := a.svc.ExportClientReportCSV(domain.HistorySpan(span))
+	data, err := a.svc.ExportClientReportCSV(span)
 	if err != nil {
 		return "", err
 	}

@@ -58,15 +58,56 @@ func TestClientsAndReport(t *testing.T) {
 		t.Fatalf("cost = %v", summary.CostUSD)
 	}
 
-	data, err := s.ExportClientReportCSV(domain.Span7d)
+	data, err := s.ExportClientReportCSV("this_month")
 	if err != nil {
 		t.Fatal(err)
 	}
 	csv := string(data)
-	for _, want := range []string{"Acme,a,/work/a,1,1000000", "Sin cliente,b,/work/b", "Acme,TOTAL CLIENTE", "TOTAL,,,0,2000000,0,0,0,2000000,4.00"} {
+	for _, want := range []string{"Acme,a,/work/a,1,0.00,1000000", "Sin cliente,b,/work/b", "Acme,TOTAL CLIENTE", "TOTAL,,,0,0.00,2000000,0,0,0,2000000,4.00"} {
 		if !strings.Contains(csv, want) {
 			t.Fatalf("report missing %q:\n%s", want, csv)
 		}
+	}
+	if _, err := s.ExportClientReportCSV("siempre"); err == nil {
+		t.Fatal("unknown period must fail")
+	}
+	// Nothing happened last month.
+	if report, err := s.ClientReport("last_month"); err != nil || len(report.Summary.Projects) != 0 {
+		t.Fatalf("last month = %+v err=%v", report.Summary.Projects, err)
+	}
+
+	// Budgets: Acme has spent $2 this month.
+	var alerts []string
+	unsubscribe := s.Subscribe(func(e Event) {
+		if e.Kind == EventThreshold {
+			alerts = append(alerts, e.Message)
+		}
+	})
+	defer unsubscribe()
+	if err := s.SetClientBudget("Acme", 2.5); err != nil {
+		t.Fatal(err)
+	}
+	budgets, err := s.ClientBudgets()
+	if err != nil || len(budgets) != 1 || budgets[0].SpentUSD != 2 || budgets[0].Percent != 80 {
+		t.Fatalf("budgets = %+v err=%v", budgets, err)
+	}
+	s.checkBudgets()
+	s.checkBudgets() // the same level is announced only once
+	if len(alerts) != 1 || !strings.Contains(alerts[0], "80%") {
+		t.Fatalf("alerts after 80%% = %v", alerts)
+	}
+	if err := s.SetClientBudget("Acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	s.checkBudgets()
+	if len(alerts) != 2 || !strings.Contains(alerts[1], "superado") {
+		t.Fatalf("alerts after 100%% = %v", alerts)
+	}
+	if err := s.SetClientBudget("Acme", 0); err != nil {
+		t.Fatal(err)
+	}
+	if budgets, _ = s.ClientBudgets(); len(budgets) != 0 {
+		t.Fatalf("budget not removed: %+v", budgets)
 	}
 
 	// A folder rule covers the projects that have no assignment of their own.
@@ -92,6 +133,17 @@ func TestClientsAndReport(t *testing.T) {
 	}
 	if summary, _ = s.ClaudeCodeUsage(domain.Span7d); len(summary.ClientFolders) != 0 {
 		t.Fatalf("rule not removed: %+v", summary.ClientFolders)
+	}
+
+	// The subscription has its own pace: 5 min by default, never under 2.
+	if got := s.Config().SubscriptionIntervalSeconds; got != 300 {
+		t.Fatalf("default subscription interval = %d", got)
+	}
+	if err := s.SetSubscriptionInterval(15); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Config().SubscriptionIntervalSeconds; got != 120 {
+		t.Fatalf("clamped subscription interval = %d", got)
 	}
 
 	// The assignment survives a restart and can be cleared.

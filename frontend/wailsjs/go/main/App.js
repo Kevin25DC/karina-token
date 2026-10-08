@@ -143,6 +143,30 @@ export function SetProjectClient(path, client) {
   return call('SetProjectClient', [path, client]);
 }
 
+export function ClientReport(period) {
+  return call('ClientReport', [period]);
+}
+
+export function ClientBudgets() {
+  return call('ClientBudgets', []);
+}
+
+export function SetClientBudget(client, usd) {
+  return call('SetClientBudget', [client, usd]);
+}
+
+export function SetSubscriptionInterval(seconds) {
+  return call('SetSubscriptionInterval', [seconds]);
+}
+
+export function SetIdleGapMinutes(minutes) {
+  return call('SetIdleGapMinutes', [minutes]);
+}
+
+export function SetReportBusinessName(name) {
+  return call('SetReportBusinessName', [name]);
+}
+
 export function SetFolderClient(folder, client) {
   return call('SetFolderClient', [folder, client]);
 }

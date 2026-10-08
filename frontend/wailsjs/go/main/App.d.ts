@@ -3,6 +3,9 @@
 import type {
   AppInfo,
   ClaudeCodeUsageSummary,
+  ClientBudget,
+  ClientReport,
+  ReportPeriod,
   ClaudeOAuthStart,
   ConfigSnapshot,
   ExperimentalSubRead,
@@ -53,5 +56,11 @@ export function ClaudeCodeDetected(): Promise<boolean>;
 export function SetProjectClient(path: string, client: string): Promise<void>;
 export function SetFolderClient(folder: string, client: string): Promise<void>;
 export function SetSubscriptionPrice(usd: number): Promise<void>;
-export function ExportClientReport(span: HistorySpan): Promise<string>;
+export function ExportClientReport(period: ReportPeriod): Promise<string>;
+export function ClientReport(period: ReportPeriod): Promise<ClientReport>;
+export function ClientBudgets(): Promise<ClientBudget[]>;
+export function SetClientBudget(client: string, usd: number): Promise<void>;
+export function SetIdleGapMinutes(minutes: number): Promise<void>;
+export function SetSubscriptionInterval(seconds: number): Promise<void>;
+export function SetReportBusinessName(name: string): Promise<void>;
 export function ClaudeCodeUsage(span: HistorySpan): Promise<ClaudeCodeUsageSummary>;

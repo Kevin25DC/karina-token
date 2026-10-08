@@ -156,6 +156,24 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
 - Asesor de plan: compara `config.SubscriptionMonthlyUSD` con el costo
   equivalente de 30 días. Solo ve Claude Code de este equipo.
 
+## Horas, reporte y presupuestos por cliente (v0.8.0)
+
+- Código en `internal/core/clients.go`.
+- **Horas activas** (`transcripts.activeSeconds`): tiempo entre respuestas
+  consecutivas de un proyecto con pausas de hasta `config.IdleGapMinutes`
+  (10 por defecto). Las sesiones paralelas del mismo proyecto se fusionan; el
+  total general es la suma por proyecto.
+- **Reporte**: `Service.ClientReport(period)` con periodos `this_month`,
+  `last_month`, `today`, `7d`, `30d` (`transcripts.ScanRange` admite `Until`).
+  El PDF lo imprime el frontend (`PrintableReport`, portal oculto +
+  `window.print()`); el CSV sale de `ExportClientReportCSV`.
+- **Presupuestos**: `config.ClientBudgets` (USD/mes). `Service.checkBudgets`
+  corre al final de cada ciclo y avisa una vez al 80 % y otra al 100 %; lo ya
+  avisado se guarda en `config.BudgetAlerts` (`AAAA-MM|cliente`).
+- **Ritmo de Claude Suscripción**: `config.SubscriptionIntervalSeconds`
+  (300 por defecto, mínimo 120), independiente del intervalo general. Medido
+  el 2026-10-08: ~20 lecturas en 5 minutos disparan un 429. No bajarlo.
+
 ## Widget «isla» y mascota Kari (v0.7.0)
 
 - El modo widget es una isla que cuelga del centro superior: pastilla plegada

@@ -5,6 +5,9 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 import type {
   AppInfo,
   ClaudeCodeUsageSummary,
+  ClientBudget,
+  ClientReport,
+  ReportPeriod,
   ClaudeOAuthStart,
   ConfigSnapshot,
   EventPayload,
@@ -68,6 +71,8 @@ export const api = {
   claudeOAuthStart: () => call<ClaudeOAuthStart>(() => App.ClaudeOAuthStart()),
   claudeOAuthComplete: (code: string) =>
     call<ExperimentalSubRead>(() => App.ClaudeOAuthComplete(code)),
+  setSubscriptionInterval: (seconds: number) =>
+    call<void>(() => App.SetSubscriptionInterval(seconds)),
   setRefreshInterval: (seconds: number) =>
     call<void>(() => App.SetRefreshInterval(seconds)),
   setStartWithSystem: (enabled: boolean) =>
@@ -92,7 +97,14 @@ export const api = {
   setFolderClient: (folder: string, client: string) =>
     call<void>(() => App.SetFolderClient(folder, client)),
   setSubscriptionPrice: (usd: number) => call<void>(() => App.SetSubscriptionPrice(usd)),
-  exportClientReport: (span: HistorySpan) => call<string>(() => App.ExportClientReport(span)),
+  exportClientReport: (period: ReportPeriod) =>
+    call<string>(() => App.ExportClientReport(period)),
+  clientReport: (period: ReportPeriod) => call<ClientReport>(() => App.ClientReport(period)),
+  clientBudgets: () => call<ClientBudget[]>(() => App.ClientBudgets()),
+  setClientBudget: (client: string, usd: number) =>
+    call<void>(() => App.SetClientBudget(client, usd)),
+  setIdleGapMinutes: (minutes: number) => call<void>(() => App.SetIdleGapMinutes(minutes)),
+  setReportBusinessName: (name: string) => call<void>(() => App.SetReportBusinessName(name)),
   claudeCodeUsage: (span: HistorySpan) =>
     call<ClaudeCodeUsageSummary>(() => App.ClaudeCodeUsage(span)),
   exportHistory: (provider: ProviderID, span: HistorySpan) =>

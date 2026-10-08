@@ -186,7 +186,7 @@ func (r *Reader) fetch(ctx context.Context, token, source string) Result {
 		res.RetryAfter = retryAfter(httpResp.Header.Get("Retry-After"))
 		switch httpResp.StatusCode {
 		case http.StatusConflict:
-			res.Error = "Anthropic devolvió 409 (conflicto): normalmente es temporal o por consultar demasiado seguido. Espera un momento y reintenta; la lectura automática ahora espera 5 minutos."
+			res.Error = "Anthropic devolvió 409 (conflicto): normalmente es temporal o por consultar demasiado seguido. Karina esperará más tiempo antes de volver a intentar."
 		case http.StatusTooManyRequests:
 			res.Error = "Anthropic limitó las consultas de uso (429). Karina esperará más tiempo antes de volver a intentar."
 		case http.StatusUnauthorized:

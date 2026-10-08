@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,8 +34,10 @@ import (
 )
 
 const (
-	refreshTimeout    = 25 * time.Second
-	manualMinInterval = 5 * time.Minute
+	refreshTimeout = 25 * time.Second
+	// manualFailureWait is the pause after a failed read of the Claude
+	// subscription that is not a rate limit.
+	manualFailureWait = 5 * time.Minute
 	// Waits after the usage endpoint answers 429/409: first, then doubling.
 	manualRateLimitWait = 15 * time.Minute
 	manualMaxWait       = 2 * time.Hour
@@ -405,6 +406,9 @@ func (s *Service) refreshCycle(ctx context.Context) error {
 		return nil
 	}
 	defer s.runMu.Unlock()
+	// Client budgets depend on local transcripts, not on any provider, so
+	// they are checked every cycle even when no provider is connected.
+	defer s.checkBudgets()
 
 	s.mu.Lock()
 	ids := s.enabledReadyIDsLocked()
@@ -543,11 +547,18 @@ func (s *Service) refreshOne(ctx context.Context, id domain.ProviderID) {
 // refreshManual reads the usage of a manual/experimental provider (Claude
 // subscription) using the locally available OAuth token.
 func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
-	// Serialize reads and throttle automatic polling so we never hit the
-	// experimental endpoint too often or concurrently (it can return 409).
+	// Serialize reads so they never overlap on the experimental endpoint (it
+	// can return 409), and keep its own, slower pace: the endpoint answers
+	// 429 after a burst of reads (about 20 in 5 minutes, measured 2026-10-08),
+	// so it cannot follow the general refresh interval. A 429/409 backs off
+	// further through nextTry (see manualBackoff).
 	s.manualReadMu.Lock()
 	defer s.manualReadMu.Unlock()
-	if t := s.lastManualRead[id]; !t.IsZero() && time.Since(t) < manualMinInterval {
+	s.mu.Lock()
+	// A little slack so a cycle that fires slightly early is not skipped.
+	pace := s.cfg.SubscriptionInterval() - 2*time.Second
+	s.mu.Unlock()
+	if t := s.lastManualRead[id]; !t.IsZero() && time.Since(t) < pace {
 		s.logger.Debug("manual provider throttled", "provider", id)
 		return
 	}
@@ -600,7 +611,7 @@ func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
 func (s *Service) manualBackoff(id domain.ProviderID, res claudesub.Result) time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	wait := manualMinInterval
+	wait := manualFailureWait
 	if res.HTTPStatus == http.StatusTooManyRequests || res.HTTPStatus == http.StatusConflict {
 		wait = s.backoff[id] * 2
 		if wait < manualRateLimitWait {
@@ -1079,17 +1090,23 @@ func (s *Service) CompleteOnboarding() error {
 
 // ConfigSnapshot is a safe, key-free view of the configuration for the UI.
 type ConfigSnapshot struct {
-	RefreshIntervalSeconds int    `json:"refresh_interval_seconds"`
-	StartWithSystem        bool   `json:"start_with_system"`
-	OnboardingDone         bool   `json:"onboarding_done"`
-	AlertsEnabled          bool   `json:"alerts_enabled"`
-	AlertThresholdPercent  int    `json:"alert_threshold_percent"`
-	WebhookConfigured      bool   `json:"webhook_configured"`
-	WebhookPreview         string `json:"webhook_preview"`
-	DataDir                string `json:"data_dir"`
+	RefreshIntervalSeconds int `json:"refresh_interval_seconds"`
+	// SubscriptionIntervalSeconds is the pace of the Claude subscription.
+	SubscriptionIntervalSeconds int    `json:"subscription_interval_seconds"`
+	StartWithSystem             bool   `json:"start_with_system"`
+	OnboardingDone              bool   `json:"onboarding_done"`
+	AlertsEnabled               bool   `json:"alerts_enabled"`
+	AlertThresholdPercent       int    `json:"alert_threshold_percent"`
+	WebhookConfigured           bool   `json:"webhook_configured"`
+	WebhookPreview              string `json:"webhook_preview"`
+	DataDir                     string `json:"data_dir"`
 	// SubscriptionMonthlyUSD is the monthly price of the user's Claude plan
 	// (0 = not set).
 	SubscriptionMonthlyUSD float64 `json:"subscription_monthly_usd"`
+	// IdleGapMinutes is the pause that ends a stretch of work when measuring
+	// time; ReportBusinessName heads the client reports.
+	IdleGapMinutes     int    `json:"idle_gap_minutes"`
+	ReportBusinessName string `json:"report_business_name"`
 }
 
 // Config returns a snapshot of the configuration (never contains keys).
@@ -1105,15 +1122,18 @@ func (s *Service) Config() ConfigSnapshot {
 	}
 
 	return ConfigSnapshot{
-		RefreshIntervalSeconds: s.cfg.RefreshIntervalSeconds,
-		StartWithSystem:        s.cfg.StartWithSystem,
-		OnboardingDone:         s.cfg.OnboardingDone,
-		AlertsEnabled:          s.cfg.AlertsEnabled,
-		AlertThresholdPercent:  s.cfg.Threshold(),
-		WebhookConfigured:      webhookConfigured,
-		WebhookPreview:         webhookPreview,
-		DataDir:                s.baseDir,
-		SubscriptionMonthlyUSD: s.cfg.SubscriptionMonthlyUSD,
+		RefreshIntervalSeconds:      s.cfg.RefreshIntervalSeconds,
+		SubscriptionIntervalSeconds: int(s.cfg.SubscriptionInterval() / time.Second),
+		StartWithSystem:             s.cfg.StartWithSystem,
+		OnboardingDone:              s.cfg.OnboardingDone,
+		AlertsEnabled:               s.cfg.AlertsEnabled,
+		AlertThresholdPercent:       s.cfg.Threshold(),
+		WebhookConfigured:           webhookConfigured,
+		WebhookPreview:              webhookPreview,
+		DataDir:                     s.baseDir,
+		SubscriptionMonthlyUSD:      s.cfg.SubscriptionMonthlyUSD,
+		IdleGapMinutes:              s.cfg.IdleGap(),
+		ReportBusinessName:          s.cfg.ReportBusinessName,
 	}
 }
 
@@ -1341,110 +1361,6 @@ type HistoryResult struct {
 	HasUsage   bool                  `json:"has_usage"`
 	HasBilling bool                  `json:"has_billing"`
 	Points     []domain.HistoryPoint `json:"points"`
-}
-
-// ClaudeCodeUsage reads local Claude Code transcripts
-// (~/.claude/projects/**/*.jsonl) and reports real token usage per project
-// and per day for the given span. Unlike every provider adapter, this
-// reads no network at all — it is the one number Karina can show with zero
-// ambiguity, straight from the same files Claude Code itself writes.
-func (s *Service) ClaudeCodeUsage(span domain.HistorySpan) (transcripts.Summary, error) {
-	root, err := s.transcriptsRoot()
-	if err != nil {
-		return transcripts.Summary{}, err
-	}
-	summary, err := transcripts.Scan(root, span.Start(time.Now()))
-	if err != nil {
-		return transcripts.Summary{}, err
-	}
-	s.mu.Lock()
-	byPath := make(map[string]string, len(s.cfg.ProjectClients))
-	for path, client := range s.cfg.ProjectClients {
-		byPath[path] = client
-	}
-	byFolder := make(map[string]string, len(s.cfg.FolderClients))
-	for folder, client := range s.cfg.FolderClients {
-		byFolder[folder] = client
-	}
-	s.mu.Unlock()
-	summary.AssignClients(byPath, byFolder)
-	return summary, nil
-}
-
-func (s *Service) transcriptsRoot() (string, error) {
-	if s.transcriptsDir != "" {
-		return s.transcriptsDir, nil
-	}
-	return transcripts.DefaultRoot()
-}
-
-// ExportClientReportCSV renders the Claude Code usage of a span grouped by
-// client and project: tokens and estimated cost at API list prices. It is
-// the report a freelancer or agency hands to (or keeps per) client.
-func (s *Service) ExportClientReportCSV(span domain.HistorySpan) ([]byte, error) {
-	summary, err := s.ClaudeCodeUsage(span)
-	if err != nil {
-		return nil, err
-	}
-	if !summary.Available || len(summary.Projects) == 0 {
-		return nil, fmt.Errorf("no hay actividad de Claude Code en este periodo")
-	}
-
-	projects := append([]transcripts.ProjectUsage(nil), summary.Projects...)
-	sort.SliceStable(projects, func(i, j int) bool {
-		// Named clients first (alphabetical), unassigned projects last.
-		ci, cj := projects[i].Client, projects[j].Client
-		if ci != cj {
-			if ci == "" || cj == "" {
-				return cj == ""
-			}
-			return ci < cj
-		}
-		return projects[i].CostUSD > projects[j].CostUSD
-	})
-
-	var buf bytes.Buffer
-	// BOM so Excel opens the accents correctly.
-	buf.Write([]byte{0xEF, 0xBB, 0xBF})
-	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{
-		"cliente", "proyecto", "ruta", "sesiones",
-		"tokens_entrada", "tokens_salida", "tokens_cache_escritura", "tokens_cache_lectura",
-		"tokens_total", "costo_estimado_usd",
-	})
-	row := func(client, label, path string, sessions int, tk transcripts.Tokens, cost float64) {
-		_ = w.Write([]string{
-			client, label, path, strconv.Itoa(sessions),
-			strconv.FormatInt(tk.Input, 10),
-			strconv.FormatInt(tk.Output, 10),
-			strconv.FormatInt(tk.CacheCreation, 10),
-			strconv.FormatInt(tk.CacheRead, 10),
-			strconv.FormatInt(tk.Total(), 10),
-			strconv.FormatFloat(cost, 'f', 2, 64),
-		})
-	}
-	clientLabel := func(name string) string {
-		if name == "" {
-			return "Sin cliente"
-		}
-		return name
-	}
-	for _, p := range projects {
-		row(clientLabel(p.Client), p.Label, p.Path, p.Sessions, p.Tokens, p.CostUSD)
-	}
-	for _, c := range summary.Clients {
-		row(clientLabel(c.Name), "TOTAL CLIENTE", "", c.Sessions, c.Tokens, c.CostUSD)
-	}
-	row("TOTAL", "", "", 0, summary.Total, summary.CostUSD)
-	_ = w.Write([]string{
-		"nota",
-		fmt.Sprintf("Costo estimado a precios de lista de la API de Anthropic al %s; no es una factura. Periodo: %s.", summary.PricesAsOf, span),
-	})
-	w.Flush()
-	if err := w.Error(); err != nil {
-		return nil, fmt.Errorf("generar csv: %w", err)
-	}
-	return buf.Bytes(), nil
 }
 
 // ClaudeCodeDetected reports whether Claude Code has left transcripts on this

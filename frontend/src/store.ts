@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { api, onEvent, onWidgetMode } from './lib/api';
 import type {
   AppInfo,
+  ClientBudget,
   ConfigSnapshot,
   EventPayload,
   ProviderID,
@@ -26,6 +27,8 @@ interface AppState {
   booted: boolean;
   /** Claude Code se ha usado en este equipo (hay transcripts locales). */
   claudeCodeDetected: boolean;
+  /** Presupuestos mensuales por cliente con lo consumido este mes. */
+  budgets: ClientBudget[];
   cycleCount: number;
   widgetMode: boolean;
   view: View;
@@ -37,6 +40,7 @@ interface AppState {
 
   boot: () => Promise<void>;
   reload: () => Promise<void>;
+  reloadBudgets: () => Promise<void>;
   applyEvent: (e: EventPayload) => void;
   setView: (v: View) => void;
   setWidgetMode: (active: boolean) => void;
@@ -74,6 +78,7 @@ export const useStore = create<AppState>((set, get) => ({
   info: null,
   booted: false,
   claudeCodeDetected: false,
+  budgets: [],
   cycleCount: 0,
   widgetMode: false,
   view: 'dashboard',
@@ -105,6 +110,7 @@ export const useStore = create<AppState>((set, get) => ({
       claudeCodeDetected: !!claudeCodeDetected,
       booted: true,
     });
+    void get().reloadBudgets();
 
     // Live events pushed from the Go side.
     onEvent('provider:update', (e) => get().applyEvent(e));
@@ -114,6 +120,7 @@ export const useStore = create<AppState>((set, get) => ({
     onWidgetMode((active) => set({ widgetMode: active }));
     onEvent('cycle:start', () => set({ updatingAll: true }));
     onEvent('cycle:end', (e) => {
+      void get().reloadBudgets();
       set((prev) => ({
         updatingAll: false,
         cycleCount: prev.cycleCount + 1,
@@ -136,6 +143,14 @@ export const useStore = create<AppState>((set, get) => ({
     for (const s of states) map[s.provider] = s;
     const redacted = await loadRedacted(meta);
     set({ config, meta, states: map, redacted });
+  },
+
+  reloadBudgets: async () => {
+    try {
+      set({ budgets: (await api.clientBudgets()) ?? [] });
+    } catch {
+      /* los presupuestos son opcionales: sin ellos la app sigue igual */
+    }
   },
 
   applyEvent: (e) => {

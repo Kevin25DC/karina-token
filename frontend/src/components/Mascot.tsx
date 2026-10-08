@@ -33,6 +33,7 @@ export function useMascotStatus(): MascotStatus {
   const states = useStore((s) => s.states);
   const updatingAll = useStore((s) => s.updatingAll);
   const threshold = useStore((s) => s.config?.alert_threshold_percent ?? 85);
+  const budgets = useStore((s) => s.budgets);
 
   return useMemo(() => {
     let percent = -1;
@@ -66,12 +67,21 @@ export function useMascotStatus(): MascotStatus {
     if (!any) return { mood: 'sleeping', line: 'Conecta un proveedor y despierto', percent: -1 };
     if (percent >= 100) return { mood: 'exhausted', line: `Límite alcanzado: ${hottest}`, percent };
     if (percent >= threshold) return { mood: 'worried', line: `Ojo, ${pct}% en ${hottest}`, percent };
+    // Presupuestos por cliente (vienen ordenados del más consumido al menos).
+    const tight = budgets.find((b) => b.percent >= 80);
+    if (tight) {
+      const line =
+        tight.percent >= 100
+          ? `${tight.name} superó su presupuesto del mes`
+          : `${tight.name} va al ${Math.round(tight.percent)}% de su presupuesto`;
+      return { mood: 'worried', line, percent };
+    }
     if (updatingAll) return { mood: 'thinking', line: 'Consultando el consumo…', percent };
     if (failed) return { mood: 'confused', line: `No pude leer ${failed}`, percent };
     if (percent < 0) return { mood: 'sleeping', line: 'Aún no hay datos de uso', percent };
     if (percent < HAPPY_BELOW) return { mood: 'happy', line: `Vas sobrado: ${pct}%`, percent };
     return { mood: 'idle', line: `Todo tranquilo: ${pct}%`, percent };
-  }, [meta, states, updatingAll, threshold]);
+  }, [meta, states, updatingAll, threshold, budgets]);
 }
 
 const INK = '#1e1b4b';

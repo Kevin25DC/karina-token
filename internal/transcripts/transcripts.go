@@ -87,6 +87,9 @@ type ProjectUsage struct {
 	Tokens   Tokens `json:"tokens"`
 	// CostUSD is the estimated cost at API list prices.
 	CostUSD float64 `json:"cost_usd"`
+	// ActiveSeconds is the estimated time worked on the project (see
+	// activeSeconds).
+	ActiveSeconds int64 `json:"active_seconds"`
 	// Client is the client/label the user assigned to this project ("" when
 	// none). It is filled in by the caller, not read from the transcripts.
 	Client string `json:"client"`
@@ -105,6 +108,8 @@ type ClientUsage struct {
 	Sessions int     `json:"sessions"`
 	Tokens   Tokens  `json:"tokens"`
 	CostUSD  float64 `json:"cost_usd"`
+	// ActiveSeconds is the sum of the active time of its projects.
+	ActiveSeconds int64 `json:"active_seconds"`
 }
 
 // ModelUsage is the aggregate for one model id exactly as Claude Code
@@ -144,6 +149,11 @@ type Summary struct {
 	CostUSD        float64 `json:"cost_usd"`
 	UnpricedTokens int64   `json:"unpriced_tokens"`
 	PricesAsOf     string  `json:"prices_as_of"`
+	// ActiveSeconds is the active time summed over projects (work done on two
+	// projects at once counts for both). IdleGapMinutes is the pause that
+	// ends a stretch of work.
+	ActiveSeconds  int64 `json:"active_seconds"`
+	IdleGapMinutes int   `json:"idle_gap_minutes"`
 	// Clients and ClientNames are filled in by AssignClients.
 	Clients     []ClientUsage `json:"clients"`      // sorted by CostUSD desc
 	ClientNames []string      `json:"client_names"` // every known client, sorted
@@ -232,6 +242,7 @@ func (s *Summary) AssignClients(byPath, byFolder map[string]string) {
 		c.Sessions += p.Sessions
 		c.Tokens.add(p.Tokens)
 		c.CostUSD += p.CostUSD
+		c.ActiveSeconds += p.ActiveSeconds
 	}
 	s.Clients = make([]ClientUsage, 0, len(clients))
 	for _, c := range clients {
@@ -280,6 +291,29 @@ func Detected(root string) bool {
 // subdirectories Claude Code nests forked-agent transcripts in) and
 // aggregates token usage for assistant turns at or after since.
 func Scan(root string, since time.Time) (Summary, error) {
+	return ScanRange(root, Range{Since: since})
+}
+
+// DefaultIdleGap is the pause after which work on a project is considered
+// to have stopped when measuring active time.
+const DefaultIdleGap = 10 * time.Minute
+
+// Range selects what a scan covers and how active time is measured.
+type Range struct {
+	// Since is the inclusive start; Until the exclusive end (zero = no end).
+	Since, Until time.Time
+	// IdleGap is the longest pause between two responses that still counts
+	// as working time (zero = DefaultIdleGap).
+	IdleGap time.Duration
+}
+
+// ScanRange is Scan for an arbitrary time range.
+func ScanRange(root string, r Range) (Summary, error) {
+	since := r.Since
+	idleGap := r.IdleGap
+	if idleGap <= 0 {
+		idleGap = DefaultIdleGap
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -297,6 +331,7 @@ func Scan(root string, since time.Time) (Summary, error) {
 		sessions:      map[string]map[string]struct{}{},
 		models:        map[string]*ModelUsage{},
 		projectModels: map[string]map[string]*ModelUsage{},
+		projectTimes:  map[string][]int64{},
 	}
 
 	// A file last written before `since` cannot hold a turn inside the span,
@@ -352,7 +387,7 @@ func Scan(root string, since time.Time) (Summary, error) {
 	for _, turns := range perFile {
 		for i := range turns {
 			t := &turns[i]
-			if t.at.Before(since) {
+			if t.at.Before(since) || (!r.Until.IsZero() && !t.at.Before(r.Until)) {
 				continue
 			}
 			if t.key != "" {
@@ -372,10 +407,13 @@ func Scan(root string, since time.Time) (Summary, error) {
 		CostUSD:        a.cost,
 		UnpricedTokens: a.unpriced,
 		PricesAsOf:     pricing.AsOf,
+		IdleGapMinutes: int(idleGap / time.Minute),
 	}
 	for path, p := range a.projects {
 		p.Sessions = len(a.sessions[path])
 		p.Models = sortedModels(a.projectModels[path])
+		p.ActiveSeconds = activeSeconds(a.projectTimes[path], int64(idleGap/time.Second))
+		summary.ActiveSeconds += p.ActiveSeconds
 		summary.Projects = append(summary.Projects, *p)
 	}
 	sort.Slice(summary.Projects, func(i, j int) bool {
@@ -387,6 +425,22 @@ func Scan(root string, since time.Time) (Summary, error) {
 	sort.Slice(summary.Days, func(i, j int) bool { return summary.Days[i].Date < summary.Days[j].Date })
 
 	return summary, nil
+}
+
+// activeSeconds estimates working time from the moments (unix seconds) a
+// project got a response: consecutive responses no further apart than gap
+// belong to the same stretch of work and the time between them counts; a
+// longer silence is a break and does not. Sessions running in parallel on
+// the same project are merged first, so their time is not counted twice.
+func activeSeconds(times []int64, gap int64) int64 {
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	var total int64
+	for i := 1; i < len(times); i++ {
+		if d := times[i] - times[i-1]; d <= gap {
+			total += d
+		}
+	}
+	return total
 }
 
 // turn is one assistant response: the only data kept from a transcript.
@@ -565,6 +619,7 @@ func (a *aggregates) add(t *turn) {
 	}
 	p.Tokens.add(tk)
 	p.CostUSD += t.cost
+	a.projectTimes[projectPath] = append(a.projectTimes[projectPath], t.at.Unix())
 	if t.session != "" {
 		a.sessions[projectPath][t.session] = struct{}{}
 	}
@@ -599,6 +654,7 @@ type aggregates struct {
 	sessions      map[string]map[string]struct{} // project path -> set of session ids
 	models        map[string]*ModelUsage
 	projectModels map[string]map[string]*ModelUsage // project path -> model -> usage
+	projectTimes  map[string][]int64                // project path -> response times (unix s)
 	total         Tokens
 	cost          float64
 	unpriced      int64 // tokens of models without a known price

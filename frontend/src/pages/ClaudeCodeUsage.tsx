@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Cpu, FolderGit2, Info, Terminal } from 'luci
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
-import { formatMoney, formatTokens, formatTokensFull } from '@/lib/format';
+import { formatHours, formatMoney, formatTokens, formatTokensFull } from '@/lib/format';
 import { Card, Skeleton } from '@/components/primitives';
 import { ClientPicker, ClientsCard, CostNote, PlanAdvisor } from '@/components/ClaudeCodeCost';
 import type { ClaudeCodeUsageSummary, HistorySpan } from '@/lib/types';
@@ -135,7 +135,7 @@ export function ClaudeCodeUsage() {
 
           <PlanAdvisor monthly={monthly} />
 
-          <ClientsCard summary={summary} span={span} onChanged={() => void fetchUsage()} />
+          <ClientsCard summary={summary} onChanged={() => void fetchUsage()} />
 
           {models.length > 0 && (
             <Card className="p-6">
@@ -209,6 +209,7 @@ export function ClaudeCodeUsage() {
                         />
                       </span>
                       <span className="shrink-0 font-mono text-xs text-zinc-400">
+                        {formatHours(p.active_seconds)} ·{' '}
                         <span className="text-zinc-200">{formatMoney(p.cost_usd)}</span> ·{' '}
                         {formatTokens(total)} tokens · {p.sessions}{' '}
                         {p.sessions === 1 ? 'sesión' : 'sesiones'}
@@ -314,6 +315,7 @@ function SummaryCards({ summary }: { summary: ClaudeCodeUsageSummary }) {
   const total = totalOf(t);
   const cache = t.cache_creation_tokens + t.cache_read_tokens;
   const cards = [
+    { label: 'Horas activas', value: formatHours(summary.active_seconds) },
     { label: 'Costo estimado (API)', value: formatMoney(summary.cost_usd) },
     { label: 'Tokens totales', value: formatTokens(total) },
     { label: 'Entrada', value: formatTokens(t.input_tokens) },
@@ -321,7 +323,7 @@ function SummaryCards({ summary }: { summary: ClaudeCodeUsageSummary }) {
     { label: 'Caché (creación + lectura)', value: formatTokens(cache) },
   ];
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
       {cards.map((c) => (
         <Card key={c.label} className="p-4">
           <p className="text-[11px] uppercase tracking-wide text-zinc-500">{c.label}</p>
