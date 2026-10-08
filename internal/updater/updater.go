@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -83,16 +84,41 @@ func (c *Checker) Latest(ctx context.Context) (Release, error) {
 		return Release{}, err
 	}
 	r := Release{TagName: raw.TagName, HTMLURL: raw.HTMLURL, Body: raw.Body}
-	for _, a := range raw.Assets {
-		if strings.HasSuffix(strings.ToLower(a.Name), ".zip") {
-			r.AssetURL = a.BrowserDownloadURL
-			break
-		}
+	names := make([]string, len(raw.Assets))
+	for i, a := range raw.Assets {
+		names[i] = a.Name
+	}
+	if i := pickAsset(names, runtime.GOOS); i >= 0 {
+		r.AssetURL = raw.Assets[i].BrowserDownloadURL
 	}
 	if r.TagName == "" {
 		return Release{}, fmt.Errorf("respuesta inesperada de github")
 	}
 	return r, nil
+}
+
+// pickAsset returns the index of the .zip to offer on goos, or -1. Releases
+// carry one zip per platform (Karina-Windows-vX.zip, Karina-macOS-vX.zip);
+// older ones have a single zip, which is used when none names the platform.
+func pickAsset(names []string, goos string) int {
+	tag := goos
+	if goos == "darwin" {
+		tag = "macos"
+	}
+	first := -1
+	for i, n := range names {
+		n = strings.ToLower(n)
+		if !strings.HasSuffix(n, ".zip") {
+			continue
+		}
+		if strings.Contains(n, tag) {
+			return i
+		}
+		if first < 0 {
+			first = i
+		}
+	}
+	return first
 }
 
 // Check compares the current version with the latest release.

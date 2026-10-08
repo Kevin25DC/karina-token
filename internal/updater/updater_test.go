@@ -83,3 +83,24 @@ func TestNewer(t *testing.T) {
 		}
 	}
 }
+
+func TestPickAsset(t *testing.T) {
+	both := []string{"logo.png", "Karina-macOS-v0.6.0.zip", "Karina-Windows-v0.6.0.zip"}
+	cases := []struct {
+		names []string
+		goos  string
+		want  int
+	}{
+		{both, "windows", 2},
+		{both, "darwin", 1},
+		{both, "linux", 1},
+		{[]string{"Karina-Windows-v0.3.0.zip"}, "darwin", 0},
+		{[]string{"logo.png"}, "windows", -1},
+		{nil, "windows", -1},
+	}
+	for _, c := range cases {
+		if got := pickAsset(c.names, c.goos); got != c.want {
+			t.Fatalf("pickAsset(%v,%q)=%d want %d", c.names, c.goos, got, c.want)
+		}
+	}
+}

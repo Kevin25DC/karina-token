@@ -17,7 +17,11 @@ try {
     exit 1
 }
 
-$asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
+# Las releases traen un zip por plataforma; las antiguas, uno solo.
+$asset = $rel.assets | Where-Object { $_.name -like '*Windows*.zip' } | Select-Object -First 1
+if (-not $asset) {
+    $asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
+}
 if (-not $asset) {
     Write-Host 'La ultima release no contiene un instalador (.zip).' -ForegroundColor Red
     exit 1
