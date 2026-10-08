@@ -139,6 +139,7 @@ wails build -skipbindings
 go test ./...      # debe pasar sin red ni keys (mocks + httptest)
 go vet ./...
 (cd frontend && npm run typecheck)
+(cd frontend && npm run e2e)   # smoke tests de la UI con Playwright (puente de Wails simulado)
 ```
 
 ## Construcción por plataforma e instalador
@@ -150,6 +151,10 @@ go vet ./...
 - **Linux**: en la máquina Linux con webkit2gtk: `wails build -skipbindings` → binario ELF;
   empaquétalo con tu gestor (`.deb`/`.rpm`/AppImage).
 - **macOS**: en un Mac: `wails build -skipbindings` → `.app` (o `wails build -platform darwin` desde un Mac).
+- **Mac + Windows de una vez** (desde un Mac): `scripts/build.sh [mac|windows|all]` deja
+  `dist/macos/Karina.app`, `dist/windows/Karina.exe` y un zip por plataforma.
+- **Releases**: al subir una etiqueta `vX.Y.Z`, GitHub Actions compila ambas plataformas y
+  publica la Release con los dos zips (`.github/workflows/release.yml`).
 
 ## Configuración y datos
 

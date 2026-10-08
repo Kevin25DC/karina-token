@@ -124,12 +124,20 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
 
 - Rama estable: `main`. Trabajo en ramas `feature/*` + PR.
 - Versionar en `main.go` (`appVersion`) y `wails.json` (`productVersion`).
-- Empaquetar: compilar, copiar `build/bin/Karina.exe` a `dist/Karina/`,
-  actualizar versión en `dist/Karina/LEEME.txt` y `Manual-Usuario-Karina.html`,
-  y `Compress-Archive` a `dist/Karina-Windows-vX.Y.Z.zip`.
-- Publicar Release en GitHub (tag `vX.Y.Z`, label **Latest**, adjuntar el ZIP).
-  El instalador remoto (`scripts/install.ps1`) y el buscador de actualizaciones
-  de la app usan la última Release.
+- **Publicar**: subir la etiqueta `vX.Y.Z` (debe coincidir con `appVersion` y
+  `productVersion`). El workflow `.github/workflows/release.yml` compila macOS
+  y Windows y publica la Release con `Karina-macOS-vX.Y.Z.zip` y
+  `Karina-Windows-vX.Y.Z.zip`. El instalador remoto (`scripts/install.ps1`) y
+  el buscador de actualizaciones eligen el zip de su plataforma.
+- **Compilar en local (Mac)**: `scripts/build.sh [mac|windows|all]` deja
+  `dist/macos/Karina.app`, `dist/windows/Karina.exe` y los dos zips. Fija
+  Go 1.24.4 vía `GOTOOLCHAIN`. La app de Mac lleva firma ad-hoc (sin
+  Developer ID ni notarización).
+- **CI** (`.github/workflows/ci.yml`, en cada push/PR): typecheck y build del
+  frontend, `go vet`/`go test` de `internal/` y smoke tests de la UI con
+  Playwright (`cd frontend && npm run e2e`; simulan el puente de Wails en
+  `frontend/e2e/bridge.ts`, hay que ampliarlo al añadir métodos que se llamen
+  al arrancar).
 - No commitear binarios ni `dist/` (ya está en `.gitignore`).
 
 ## Reglas de seguridad
