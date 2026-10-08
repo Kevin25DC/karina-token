@@ -1,0 +1,56 @@
+name: Release
+
+# Al subir una etiqueta vX.Y.Z compila macOS y Windows y publica la Release
+# con un zip por plataforma (ver scripts/build.sh).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: La etiqueta debe coincidir con la versión del código
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          wails_version="$(sed -n 's/.*"productVersion": *"\([^"]*\)".*/\1/p' wails.json)"
+          app_version="$(sed -n 's/^const appVersion = "\(.*\)"/\1/p' main.go)"
+          echo "etiqueta=$tag wails.json=$wails_version main.go=$app_version"
+          if [ "$tag" != "$wails_version" ] || [ "$tag" != "$app_version" ]; then
+            echo "::error::La etiqueta v$tag no coincide con wails.json ($wails_version) / main.go ($app_version)"
+            exit 1
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.4'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar la CLI de Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+
+      - name: Compilar y empaquetar
+        run: scripts/build.sh all
+
+      - name: Tests de Go
+        run: go test ./...
+
+      - name: Publicar la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes
+          fi
