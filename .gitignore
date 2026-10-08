@@ -28,3 +28,7 @@ Thumbs.db
 
 # Configuración local de Claude Code (no compartir en el repo)
 .claude/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
