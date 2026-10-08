@@ -2,6 +2,27 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.6.1] - 2026-10-07
+
+Primera versión publicada también para **macOS** y compilada de forma
+automática (la etiqueta `v0.6.0` se creó sobre el código de la 0.5.1 y sin
+binarios; esta versión la sustituye).
+
+### Añadido
+- **macOS**: app universal (Intel + Apple Silicon), con bandeja de menú,
+  notificaciones nativas e iconos correctos para Dock y bandeja.
+- **Claude Code**: nuevo menú con el consumo real leído de los transcripts
+  locales.
+- **Alertas por webhook**: las alertas de umbral se pueden enviar a Slack/Discord.
+- **Releases automáticas**: GitHub Actions compila macOS y Windows al subir una
+  etiqueta y publica un zip por plataforma. `scripts/build.sh` hace lo mismo en
+  local.
+- Smoke tests de la UI con Playwright y CI en cada push/PR.
+
+### Corregido
+- El buscador de actualizaciones y el instalador remoto eligen el zip de su
+  plataforma en lugar del primero de la Release.
+
 ## [0.5.1] - 2026-09-11
 
 ### Corregido
