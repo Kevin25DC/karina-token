@@ -7,11 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"karina/internal/credentials"
 )
 
 // OAuthConfig holds the parameters of the Claude Code OAuth flow.
@@ -45,6 +49,99 @@ type Token struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
 	Scope        string `json:"scope"`
+	// ExpiresAt is the unix time the access token stops working. It is set by
+	// Karina when the token is obtained; 0 means unknown (older stored tokens).
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+}
+
+// expirySkew refreshes a little before the real expiry.
+const expirySkew = 2 * time.Minute
+
+// Expired reports whether the access token is known to be (almost) expired.
+func (t Token) Expired() bool {
+	return t.ExpiresAt > 0 && time.Now().Add(expirySkew).Unix() >= t.ExpiresAt
+}
+
+func (t *Token) stamp() {
+	if t.ExpiresIn > 0 {
+		t.ExpiresAt = time.Now().Add(time.Duration(t.ExpiresIn) * time.Second).Unix()
+	}
+}
+
+// ErrSessionExpired means the refresh token was rejected: the user has to
+// log in with Claude again.
+var ErrSessionExpired = errors.New("la sesión de Claude caducó; vuelve a «Iniciar sesión con Claude»")
+
+// LoadOwnToken returns the token of Karina's own OAuth login, if any.
+func LoadOwnToken() (Token, bool) {
+	secret, err := credentials.NewStore().Get(credentials.ClaudeOAuthAccount)
+	if err != nil || secret == "" {
+		return Token{}, false
+	}
+	var tok Token
+	if json.Unmarshal([]byte(secret), &tok) == nil && tok.AccessToken != "" {
+		return tok, true
+	}
+	if looksLikeToken(secret) {
+		return Token{AccessToken: strings.TrimSpace(secret)}, true
+	}
+	return Token{}, false
+}
+
+// SaveOwnToken persists Karina's own OAuth token in the OS credential store.
+func SaveOwnToken(tok Token) error {
+	payload, err := json.Marshal(tok)
+	if err != nil {
+		return err
+	}
+	return credentials.NewStore().Save(credentials.ClaudeOAuthAccount, string(payload))
+}
+
+// RefreshAccessToken trades a refresh token for a new access token. Only ever
+// call it with the refresh token of Karina's OWN login: refreshing the one
+// that belongs to Claude Code rotates it and logs the CLI out.
+func RefreshAccessToken(ctx context.Context, client *http.Client, cfg OAuthConfig, refreshToken string) (Token, error) {
+	if client == nil {
+		client = &http.Client{}
+	}
+	payload := map[string]string{
+		"grant_type":    "refresh_token",
+		"client_id":     cfg.ClientID,
+		"refresh_token": refreshToken,
+	}
+	data, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenURL, bytes.NewReader(data))
+	if err != nil {
+		return Token{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return Token{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return Token{}, ErrSessionExpired
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Token{}, fmt.Errorf("renovación de token falló (HTTP %d)", resp.StatusCode)
+	}
+	var tok Token
+	if err := json.Unmarshal(body, &tok); err != nil {
+		return Token{}, fmt.Errorf("respuesta de token inválida: %w", err)
+	}
+	if tok.AccessToken == "" {
+		return Token{}, fmt.Errorf("la respuesta no incluyó access_token")
+	}
+	// The refresh token is usually rotated; keep the old one when it is not.
+	if tok.RefreshToken == "" {
+		tok.RefreshToken = refreshToken
+	}
+	tok.stamp()
+	return tok, nil
 }
 
 // PKCE holds a verifier and its S256 challenge.
@@ -144,5 +241,6 @@ func ExchangeCode(ctx context.Context, client *http.Client, cfg OAuthConfig, cod
 	if tok.AccessToken == "" {
 		return Token{}, fmt.Errorf("la respuesta no incluyó access_token")
 	}
+	tok.stamp()
 	return tok, nil
 }

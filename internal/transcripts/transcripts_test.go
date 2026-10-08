@@ -149,3 +149,44 @@ func TestScanEmptyDirectoryIsAvailableWithNoData(t *testing.T) {
 		t.Fatalf("expected no data, got %+v", summary)
 	}
 }
+
+func TestScanAggregatesByModel(t *testing.T) {
+	root := t.TempDir()
+	opus := func(cwd, ts string, input int64) string {
+		return `{"type":"assistant","timestamp":"` + ts + `","cwd":"` + cwd + `","sessionId":"s9",` +
+			`"message":{"model":"claude-opus-5","usage":{"input_tokens":` + itoa(input) + `,"output_tokens":0}}}`
+	}
+	writeFile(t, filepath.Join(root, "-a", "s.jsonl"), []string{
+		assistantLine("/a", "s1", "2026-09-01T10:00:00.000Z", 100, 50, 0, 0),
+		assistantLine("/a", "s1", "2026-09-01T11:00:00.000Z", 10, 0, 0, 0),
+		opus("/a", "2026-09-01T12:00:00.000Z", 1000),
+		// Synthetic local message: no tokens, must not show up as a model.
+		`{"type":"assistant","timestamp":"2026-09-01T12:30:00.000Z","cwd":"/a","sessionId":"s1","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}`,
+	})
+	writeFile(t, filepath.Join(root, "-b", "s.jsonl"), []string{
+		assistantLine("/b", "s2", "2026-09-01T10:00:00.000Z", 5, 5, 0, 0),
+	})
+
+	summary, err := Scan(root, time.Time{})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(summary.Models) != 2 {
+		t.Fatalf("models = %+v", summary.Models)
+	}
+	if m := summary.Models[0]; m.Model != "claude-opus-5" || m.Turns != 1 || m.Tokens.Total() != 1000 {
+		t.Fatalf("top model = %+v", m)
+	}
+	if m := summary.Models[1]; m.Model != "claude-sonnet-5" || m.Turns != 3 || m.Tokens.Total() != 170 {
+		t.Fatalf("second model = %+v", m)
+	}
+	var a ProjectUsage
+	for _, p := range summary.Projects {
+		if p.Path == "/a" {
+			a = p
+		}
+	}
+	if len(a.Models) != 2 || a.Models[0].Model != "claude-opus-5" || a.Models[1].Tokens.Total() != 160 {
+		t.Fatalf("project models = %+v", a.Models)
+	}
+}

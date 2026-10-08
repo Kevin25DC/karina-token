@@ -1,7 +1,7 @@
 # Estado del proyecto Karina
 
 Documento de memoria: qué se construyó, decisiones, versiones y pendientes.
-Última actualización: 2026-09-09 · Versión actual: **v0.3.0**.
+Última actualización: 2026-10-08 · Versión actual: **v0.7.0**.
 
 ## Resumen
 
@@ -47,6 +47,12 @@ Repositorio: https://github.com/Kevin25DC/karina-token
 
 ## Pendientes / roadmap
 
+- **Claude Suscripción — 409/429**: resuelto en v0.7.0 (token propio con
+  renovación y backoff). Detalle en `AGENTS.md` § *“409 de la suscripción”*.
+  Falta confirmar con uso real que el 429 desaparece.
+- Reporte por cliente en PDF (hoy solo CSV) y excluir un proyecto suelto de
+  una regla por carpeta.
+- Probar la isla (widget) en macOS y con varios monitores.
 - Bandeja del sistema en macOS/Linux (hoy solo Windows; `tray_stub.go`).
 - Recordar posición/tamaño del widget y elegir proveedores mostrados.
 - Instalador **NSIS** (`wails build -nsis`, requiere NSIS) además del `.cmd` por usuario.

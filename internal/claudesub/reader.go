@@ -27,8 +27,6 @@ import (
 	"time"
 
 	"github.com/zalando/go-keyring"
-
-	"karina/internal/credentials"
 )
 
 // usageURL is a var so tests can point it at an httptest server.
@@ -52,6 +50,10 @@ type Result struct {
 	ResetAt string   `json:"reset_at,omitempty"`
 	Windows []Window `json:"windows,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	// HTTPStatus is the status of a failed usage request (0 otherwise) and
+	// RetryAfter the wait the server asked for, if any.
+	HTTPStatus int           `json:"-"`
+	RetryAfter time.Duration `json:"-"`
 }
 
 // Reader discovers the local Claude Code token and queries the usage
@@ -64,6 +66,8 @@ type Reader struct {
 	OverrideToken string
 	// SkipKeyring disables the OS credential-store lookup (tests).
 	SkipKeyring bool
+	// OAuth overrides the OAuth parameters used to renew the token (tests).
+	OAuth *OAuthConfig
 }
 
 func (r *Reader) http() *http.Client {
@@ -74,10 +78,29 @@ func (r *Reader) http() *http.Client {
 }
 
 // Read returns the current subscription usage window when it can.
+//
+// When the token comes from Karina's own login it is renewed with its refresh
+// token once expired (or rejected with 401). Tokens that belong to Claude Code
+// are only ever read, never refreshed.
 func (r *Reader) Read(ctx context.Context) Result {
-	token, source, err := r.DiscoverToken()
-	if err != nil {
-		return Result{Found: false, Error: err.Error()}
+	own, isOwn := r.ownToken()
+	if isOwn && own.Expired() && own.RefreshToken != "" {
+		renewed, err := r.renew(ctx, own)
+		if err != nil {
+			return Result{Found: false, Error: err.Error()}
+		}
+		own = renewed
+	}
+
+	var token, source string
+	if isOwn {
+		token, source = own.AccessToken, ownSource
+	} else {
+		var err error
+		token, source, err = r.DiscoverToken()
+		if err != nil {
+			return Result{Found: false, Error: err.Error()}
+		}
 	}
 	if token == "" {
 		return Result{
@@ -86,6 +109,50 @@ func (r *Reader) Read(ctx context.Context) Result {
 		}
 	}
 
+	res := r.fetch(ctx, token, source)
+	if res.HTTPStatus == http.StatusUnauthorized && isOwn && own.RefreshToken != "" {
+		renewed, err := r.renew(ctx, own)
+		if err != nil {
+			return Result{Found: false, Error: err.Error()}
+		}
+		res = r.fetch(ctx, renewed.AccessToken, source)
+	}
+	return res
+}
+
+const ownSource = "login con Claude (token guardado)"
+
+// ownToken returns the token of Karina's own OAuth login. It is skipped when
+// the caller forces a token (argument or environment variable).
+func (r *Reader) ownToken() (Token, bool) {
+	if r.SkipKeyring || strings.TrimSpace(r.OverrideToken) != "" || strings.TrimSpace(os.Getenv("KARINA_CLAUDE_TOKEN")) != "" {
+		return Token{}, false
+	}
+	return LoadOwnToken()
+}
+
+// renew refreshes Karina's own token and stores the rotated pair right away:
+// the old refresh token stops working as soon as the new one is issued.
+func (r *Reader) renew(ctx context.Context, old Token) (Token, error) {
+	cfg := DefaultOAuthConfig()
+	if r.OAuth != nil {
+		cfg = *r.OAuth
+	}
+	tok, err := RefreshAccessToken(ctx, r.http(), cfg, old.RefreshToken)
+	if err != nil {
+		return Token{}, err
+	}
+	if tok.Scope == "" {
+		tok.Scope = old.Scope
+	}
+	if err := SaveOwnToken(tok); err != nil {
+		return Token{}, fmt.Errorf("no se pudo guardar el token renovado: %w", err)
+	}
+	return tok, nil
+}
+
+// fetch queries the usage endpoint with the given access token.
+func (r *Reader) fetch(ctx context.Context, token, source string) Result {
 	res := Result{Found: true, Source: source}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, usageURL, nil)
 	if err != nil {
@@ -115,9 +182,16 @@ func (r *Reader) Read(ctx context.Context) Result {
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		res.Found = false
-		if httpResp.StatusCode == http.StatusConflict {
+		res.HTTPStatus = httpResp.StatusCode
+		res.RetryAfter = retryAfter(httpResp.Header.Get("Retry-After"))
+		switch httpResp.StatusCode {
+		case http.StatusConflict:
 			res.Error = "Anthropic devolvió 409 (conflicto): normalmente es temporal o por consultar demasiado seguido. Espera un momento y reintenta; la lectura automática ahora espera 5 minutos."
-		} else {
+		case http.StatusTooManyRequests:
+			res.Error = "Anthropic limitó las consultas de uso (429). Karina esperará más tiempo antes de volver a intentar."
+		case http.StatusUnauthorized:
+			res.Error = "El token de Claude caducó (401). Vuelve a «Iniciar sesión con Claude» o abre Claude Code para renovarlo."
+		default:
 			res.Error = fmt.Sprintf("Anthropic respondió HTTP %d: %s", httpResp.StatusCode, snippet(body))
 		}
 		return res
@@ -128,6 +202,23 @@ func (r *Reader) Read(ctx context.Context) Result {
 		res.Error = "La respuesta del endpoint no se pudo interpretar (cambió el formato). Sigue disponible la lectura manual."
 	}
 	return res
+}
+
+// retryAfter parses a Retry-After header (seconds or HTTP date).
+func retryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // snippet returns a short, single-line, safe excerpt of a response body.
@@ -147,6 +238,12 @@ func (r *Reader) DiscoverToken() (token, source string, err error) {
 	}
 	if tok := strings.TrimSpace(os.Getenv("KARINA_CLAUDE_TOKEN")); tok != "" {
 		return tok, "variable de entorno KARINA_CLAUDE_TOKEN", nil
+	}
+
+	// Karina's own login wins over the Claude Code session: it is a separate
+	// token, so it can be renewed without touching the CLI.
+	if tok, ok := r.ownToken(); ok {
+		return tok.AccessToken, ownSource, nil
 	}
 
 	home := r.OverrideHome
@@ -190,17 +287,6 @@ func (r *Reader) DiscoverToken() (token, source string, err error) {
 }
 
 func readFromKeyring() string {
-	// Token stored by Karina's own experimental OAuth login.
-	if secret, err := keyring.Get(credentials.Service, "claude_subscription_oauth"); err == nil && secret != "" {
-		var tok Token
-		if json.Unmarshal([]byte(secret), &tok) == nil && tok.AccessToken != "" {
-			return tok.AccessToken
-		}
-		if looksLikeToken(secret) {
-			return strings.TrimSpace(secret)
-		}
-	}
-
 	services := []string{"Claude Code-credentials", "Claude Code", "claude-code", "claude.ai"}
 	accounts := []string{"", "claude", "Claude Code"}
 	for _, svc := range services {

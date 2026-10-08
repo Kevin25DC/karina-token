@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   BarChart3,
   Plus,
@@ -20,16 +20,31 @@ import { Toaster } from '@/components/Toaster';
 import { WidgetMode } from '@/components/WidgetMode';
 import { TitleBar } from '@/components/TitleBar';
 import { Logo } from '@/components/Logo';
+import { MascotCard } from '@/components/Mascot';
 import { Kbd, Surface } from '@/components/primitives';
 
-const NAV: Array<{ id: View; label: string; icon: typeof BarChart3; kbd: string }> = [
-  { id: 'dashboard', label: 'Panel', icon: SlidersHorizontal, kbd: '1' },
-  { id: 'history', label: 'Historial de uso', icon: BarChart3, kbd: '2' },
-  { id: 'claudecode', label: 'Claude Code', icon: Terminal, kbd: '3' },
-  { id: 'settings', label: 'Ajustes', icon: Settings, kbd: '4' },
+const NAV: Array<{ id: View; label: string; icon: typeof BarChart3 }> = [
+  { id: 'dashboard', label: 'Panel', icon: SlidersHorizontal },
+  { id: 'history', label: 'Historial de uso', icon: BarChart3 },
+  { id: 'claudecode', label: 'Claude Code', icon: Terminal },
+  { id: 'settings', label: 'Ajustes', icon: Settings },
 ];
 
+// Proveedores de Claude: añadir cualquiera habilita la sección Claude Code.
+const CLAUDE_PROVIDERS = ['anthropic', 'claude_subscription'];
+
 export default function App() {
+  // Claude Code solo se ofrece si se ha usado en este equipo o si el usuario
+  // añadió Claude como proveedor.
+  const showClaudeCode = useStore(
+    (s) =>
+      s.claudeCodeDetected ||
+      s.meta.some((m) => m.enabled && CLAUDE_PROVIDERS.includes(m.id)),
+  );
+  const nav = useMemo(
+    () => NAV.filter((item) => item.id !== 'claudecode' || showClaudeCode),
+    [showClaudeCode],
+  );
   const booted = useStore((s) => s.booted);
   const config = useStore((s) => s.config);
   const widgetMode = useStore((s) => s.widgetMode);
@@ -56,15 +71,18 @@ export default function App() {
           target.tagName === 'TEXTAREA' ||
           target.isContentEditable);
       if (typing) return;
-      if (e.key === '1') setView('dashboard');
-      else if (e.key === '2') setView('history');
-      else if (e.key === '3') setView('claudecode');
-      else if (e.key === '4') setView('settings');
+      const item = nav[Number(e.key) - 1];
+      if (item) setView(item.id);
       else if (e.key === 'r' || e.key === 'R') void manualRefresh();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setView, manualRefresh]);
+  }, [nav, setView, manualRefresh]);
+
+  // Si la sección deja de estar disponible (se quitó el proveedor), volver al panel.
+  useEffect(() => {
+    if (view === 'claudecode' && !showClaudeCode) setView('dashboard');
+  }, [view, showClaudeCode, setView]);
 
   if (!booted || !config) {
     return (
@@ -94,9 +112,7 @@ export default function App() {
   if (widgetMode) {
     return (
       <>
-        <Surface className="relative">
-          <WidgetMode />
-        </Surface>
+        <WidgetMode />
         <Toaster />
       </>
     );
@@ -110,7 +126,7 @@ export default function App() {
           <aside className="flex w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/60">
             {/* Navegación */}
             <nav className="flex-1 space-y-1 px-3 pt-4">
-          {NAV.map((item) => {
+          {nav.map((item, i) => {
             const Icon = item.icon;
             const active = view === item.id;
             return (
@@ -126,7 +142,7 @@ export default function App() {
               >
                 <Icon className={cn('h-4 w-4', active && 'text-violet-300')} />
                 <span className="flex-1 text-left">{item.label}</span>
-                <Kbd>{item.kbd}</Kbd>
+                <Kbd>{i + 1}</Kbd>
               </button>
             );
           })}
@@ -134,6 +150,7 @@ export default function App() {
 
         {/* Acciones + pie */}
         <div className="space-y-3 px-4 pb-5 pt-3">
+          <MascotCard className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5" />
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => void manualRefresh()}
@@ -175,7 +192,7 @@ export default function App() {
         <div className="relative">
           {view === 'dashboard' && <Dashboard />}
           {view === 'history' && <History />}
-          {view === 'claudecode' && <ClaudeCodeUsage />}
+          {view === 'claudecode' && showClaudeCode && <ClaudeCodeUsage />}
           {view === 'settings' && <SettingsPage />}
         </div>
       </main>

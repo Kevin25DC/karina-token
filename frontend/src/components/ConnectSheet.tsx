@@ -264,7 +264,6 @@ function ManualBody({
   const states = useStore((s) => s.states);
   const existing = states[meta.id];
 
-  const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -286,7 +285,8 @@ function ManualBody({
     setLoading(true);
     setErr(null);
     try {
-      const res = await api.experimentalClaudeSubscription(token.trim());
+      // Sin token: Karina usa la sesión guardada (login propio o Claude Code).
+      const res = await api.experimentalClaudeSubscription('');
       if (res.found) {
         await persist(res.used, res.window);
       } else {
@@ -408,15 +408,6 @@ function ManualBody({
         )}
         {oauthMsg && <p className="mt-2 text-[11px] font-medium text-emerald-300">{oauthMsg}</p>}
         {oauthErr && <p className="mt-2 text-[11px] text-amber-300">{oauthErr}</p>}
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Avanzado: pega un token OAuth (sk-ant-oat…)"
-          spellCheck={false}
-          autoComplete="off"
-          className="mt-2.5 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-white/20"
-        />
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-4">

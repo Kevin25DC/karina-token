@@ -106,10 +106,66 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
   token `https://platform.claude.com/v1/oauth/token`,
   redirect `https://platform.claude.com/oauth/code/callback` (pegar código).
 - El token obtenido se guarda en el keyring (`credentials.ClaudeOAuthAccount`).
-- **Throttle 5 min** y **serialización** (mutex) para evitar HTTP **409**.
+- **Throttle 5 min** y **serialización** (mutex). ⚠️ Aun así puede aparecer
+  **409**; ver *“409 de la suscripción”* abajo.
 - ⚠️ **Riesgo**: usar el OAuth de suscripción fuera de apps nativas puede violar
   los términos de Anthropic y conllevar suspensión. Es opt-in y avisado en la UI.
   Ver `docs/claude-subscription-study.md`.
+
+### 409 de la suscripción — causa y alternativas (resuelto en v0.7.0)
+
+- **Causa real**: no es solo frecuencia. El token OAuth es el **mismo de Claude
+  Code** y `/api/oauth/usage` está atado a esa sesión. Anthropic responde:
+  - **409** = conflicto de sesión/refresh concurrente (Claude Code y Karina
+    compiten por el mismo token).
+  - **401** = token caducado (`claudeAiOauth.expiresAt`). Karina solo usa
+    `accessToken`; **no** refrescarlo por su cuenta: rotar el refresh token
+    puede **desloguear el CLI**.
+  Subir el intervalo reduce el 409, pero **no lo elimina**.
+- **Alternativa local sin red (recomendada; 0 llamadas, 0 409)**: agregar el
+  consumo real desde los transcripts de Claude Code en
+  `~/.claude/projects/**/*.jsonl` → campo `message.usage`
+  (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`,
+  `cache_read_input_tokens`). Dato real y local; **no** da el % oficial 5h/7d.
+- Otras: backoff específico de 409 (30–60 min + jitter) con caché marcada como
+  desactualizada; delegar en el propio `claude`/`/usage`; medidor **manual**
+  (ya existe, riesgo cero). La Admin API oficial **no** aplica a Pro/Max.
+- **Decisión (2026-10-08, v0.7.0)**: resuelto así:
+  - Karina usa **primero su propio token** (el del «Iniciar sesión con Claude»,
+    guardado en el keyring) y solo si no existe cae al de Claude Code.
+  - El token **propio** se renueva con su refresh token al caducar o ante un
+    401 (`claudesub.RefreshAccessToken`). El de Claude Code **nunca** se
+    refresca (sigue vigente la regla de arriba).
+  - Ante **429/409** hay backoff exponencial (15 min → 2 h, o `Retry-After`) en
+    `Service.manualBackoff`. No se renueva el token para saltarse un 429.
+
+## Claude Code: consumo, costo y clientes (v0.7.0)
+
+- `internal/transcripts` cuenta **cada respuesta una sola vez** (clave
+  `message.id` + `requestId`): Claude Code escribe una línea por bloque de
+  contenido repitiendo el mismo `usage`, y sin deduplicar el total sale ~×2.
+- Caché en memoria por archivo (tamaño + mtime), lectura en paralelo y se
+  saltan los archivos no modificados dentro del periodo.
+- `internal/pricing`: tabla de precios de lista de la API por modelo (fecha en
+  `pricing.AsOf`). El costo es una **estimación**; un modelo sin precio se
+  marca como «sin precio», nunca se inventa. **Actualizar la tabla** cuando
+  cambien los precios o salgan modelos.
+- Clientes: `config.ProjectClients` (proyecto exacto) y `config.FolderClients`
+  (carpeta padre). Gana el proyecto exacto y, entre carpetas, la más profunda.
+  Reporte CSV en `Service.ExportClientReportCSV`.
+- Asesor de plan: compara `config.SubscriptionMonthlyUSD` con el costo
+  equivalente de 30 días. Solo ve Claude Code de este equipo.
+
+## Widget «isla» y mascota Kari (v0.7.0)
+
+- El modo widget es una isla que cuelga del centro superior: pastilla plegada
+  que se despliega al pasar el cursor (`App.SetWidgetExpanded`,
+  `App.placeIsland`). Se puede arrastrar; la posición (punto superior central)
+  se guarda en `config.Widget*` y se detecta el arrastre comparando con la
+  última posición que puso Karina.
+- `frontend/src/components/Mascot.tsx`: **Kari**, personaje propio en SVG.
+  El ánimo sale de `useMascotStatus` (mayor % de uso entre proveedores).
+  No usar personajes de terceros (Clawd es de Anthropic, Mochi de Coucou).
 
 ## Trampas conocidas (ya resueltas, no reintroducir)
 
@@ -125,7 +181,9 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
 - Rama estable: `main`. Trabajo en ramas `feature/*` + PR.
 - Versionar en `main.go` (`appVersion`) y `wails.json` (`productVersion`).
 - **Publicar**: subir la etiqueta `vX.Y.Z` (debe coincidir con `appVersion` y
-  `productVersion`). El workflow `.github/workflows/release.yml` compila macOS
+  `productVersion`). El título y las notas de la Release salen de
+  `CHANGELOG.md`: el título es lo que sigue a ` · ` en el encabezado
+  `## [X.Y.Z] - fecha · Título`, y las notas son esa sección. El workflow `.github/workflows/release.yml` compila macOS
   y Windows y publica la Release con `Karina-macOS-vX.Y.Z.zip` y
   `Karina-Windows-vX.Y.Z.zip`. El instalador remoto (`scripts/install.ps1`) y
   el buscador de actualizaciones eligen el zip de su plataforma.

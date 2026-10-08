@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,10 +35,13 @@ import (
 )
 
 const (
-	refreshTimeout     = 25 * time.Second
-	manualMinInterval  = 5 * time.Minute
-	minIntervalSeconds = 10
-	maxIntervalSeconds = 3600
+	refreshTimeout    = 25 * time.Second
+	manualMinInterval = 5 * time.Minute
+	// Waits after the usage endpoint answers 429/409: first, then doubling.
+	manualRateLimitWait = 15 * time.Minute
+	manualMaxWait       = 2 * time.Hour
+	minIntervalSeconds  = 10
+	maxIntervalSeconds  = 3600
 )
 
 // Event kinds pushed to subscribers (and from there to the UI).
@@ -70,6 +74,8 @@ type Options struct {
 	Notify func(title, message string) error
 	// SkipManualAuto disables the automatic read of manual providers (tests).
 	SkipManualAuto bool
+	// TranscriptsDir overrides ~/.claude/projects (tests).
+	TranscriptsDir string
 }
 
 // manualReading is a user-entered usage reading for a manual provider
@@ -107,6 +113,7 @@ type Service struct {
 	manualPath     string
 	manual         map[domain.ProviderID]manualReading
 	skipManualAuto bool
+	transcriptsDir string
 	manualReadMu   sync.Mutex
 	lastManualRead map[domain.ProviderID]time.Time
 
@@ -170,6 +177,7 @@ func (s *Service) Open(opts Options) error {
 	s.cfg = cfg
 	s.opts = opts
 	s.skipManualAuto = opts.SkipManualAuto
+	s.transcriptsDir = opts.TranscriptsDir
 	s.http = opts.HTTP
 	if s.http == nil {
 		s.http = api.DefaultClient()
@@ -562,18 +570,52 @@ func (s *Service) refreshManual(ctx context.Context, id domain.ProviderID) {
 		st.UpdatedAt = time.Now()
 		st.Status = domain.StatusError
 		st.StatusMsg = "No se pudo leer automáticamente"
+		if res.HTTPStatus == http.StatusTooManyRequests {
+			st.Status = domain.StatusRateLimited
+			st.StatusMsg = "Límite de consultas (429)"
+		}
 		st.Error = res.Error
+		wait := s.manualBackoff(id, res)
 		s.setStatus(st)
-		s.logger.Warn("manual provider read failed", "provider", id, "error", res.Error)
+		s.logger.Warn("manual provider read failed", "provider", id, "error", res.Error, "retry_in", wait.String())
 		s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(st)})
 		return
 	}
+	s.mu.Lock()
+	delete(s.backoff, id)
+	delete(s.nextTry, id)
+	s.mu.Unlock()
 	st := s.manualStateFromResult(id, res)
 	s.setStatus(st)
 	s.persistSnapshot(id, st)
 	s.logger.Info("manual provider refreshed", "provider", id, "percent", res.Percent)
 	s.emit(Event{Kind: EventProviderUpdate, Provider: id, State: s.cloneState(st)})
 	s.checkThresholds(st)
+}
+
+// manualBackoff schedules the next automatic read after a failure and returns
+// the wait. Retrying a rate-limited endpoint every few minutes only keeps the
+// limit alive, so 429/409 back off exponentially (or as long as the server
+// asks through Retry-After).
+func (s *Service) manualBackoff(id domain.ProviderID, res claudesub.Result) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wait := manualMinInterval
+	if res.HTTPStatus == http.StatusTooManyRequests || res.HTTPStatus == http.StatusConflict {
+		wait = s.backoff[id] * 2
+		if wait < manualRateLimitWait {
+			wait = manualRateLimitWait
+		}
+		if wait > manualMaxWait {
+			wait = manualMaxWait
+		}
+		s.backoff[id] = wait
+	}
+	if res.RetryAfter > wait {
+		wait = res.RetryAfter
+	}
+	s.nextTry[id] = time.Now().Add(wait)
+	return wait
 }
 
 // manualStateFromResult converts an experimental read into a provider state
@@ -876,6 +918,14 @@ func (s *Service) ExperimentalClaudeSubscription(token string) claudesub.Result 
 	defer cancel()
 	res := r.Read(ctx)
 	s.lastManualRead["claude_subscription"] = time.Now()
+	if res.Found {
+		s.mu.Lock()
+		delete(s.backoff, "claude_subscription")
+		delete(s.nextTry, "claude_subscription")
+		s.mu.Unlock()
+	} else if res.HTTPStatus != 0 {
+		s.manualBackoff("claude_subscription", res)
+	}
 	s.logger.Info("experimental claude subscription read", "found", res.Found, "window", res.Window)
 	return res
 }
@@ -1037,6 +1087,9 @@ type ConfigSnapshot struct {
 	WebhookConfigured      bool   `json:"webhook_configured"`
 	WebhookPreview         string `json:"webhook_preview"`
 	DataDir                string `json:"data_dir"`
+	// SubscriptionMonthlyUSD is the monthly price of the user's Claude plan
+	// (0 = not set).
+	SubscriptionMonthlyUSD float64 `json:"subscription_monthly_usd"`
 }
 
 // Config returns a snapshot of the configuration (never contains keys).
@@ -1060,7 +1113,104 @@ func (s *Service) Config() ConfigSnapshot {
 		WebhookConfigured:      webhookConfigured,
 		WebhookPreview:         webhookPreview,
 		DataDir:                s.baseDir,
+		SubscriptionMonthlyUSD: s.cfg.SubscriptionMonthlyUSD,
 	}
+}
+
+// WidgetAnchor returns where the user last left the widget (the top-centre
+// point of the island). moved is false when they never dragged it.
+func (s *Service) WidgetAnchor() (centerX, topY int, moved bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.WidgetCenterX, s.cfg.WidgetTopY, s.cfg.WidgetMoved
+}
+
+// SetWidgetAnchor remembers where the user dragged the widget.
+func (s *Service) SetWidgetAnchor(centerX, topY int) error {
+	s.mu.Lock()
+	s.cfg.WidgetMoved = true
+	s.cfg.WidgetCenterX, s.cfg.WidgetTopY = centerX, topY
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// ClearWidgetAnchor forgets the widget position (back to the default).
+func (s *Service) ClearWidgetAnchor() error {
+	s.mu.Lock()
+	s.cfg.WidgetMoved = false
+	s.cfg.WidgetCenterX, s.cfg.WidgetTopY = 0, 0
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// SetSubscriptionPrice stores what the user pays per month for their Claude
+// plan (0 clears it).
+func (s *Service) SetSubscriptionPrice(usd float64) error {
+	if usd < 0 || usd > 100000 || usd != usd {
+		return fmt.Errorf("precio de plan inválido")
+	}
+	s.mu.Lock()
+	s.cfg.SubscriptionMonthlyUSD = usd
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// SetFolderClient assigns every Claude Code project under a folder to a
+// client or label. An empty client removes the rule.
+func (s *Service) SetFolderClient(folder, client string) error {
+	folder = strings.TrimRight(strings.TrimSpace(folder), `/\`)
+	client = strings.TrimSpace(client)
+	if folder == "" {
+		return fmt.Errorf("indica la carpeta")
+	}
+	if len(client) > 60 {
+		return fmt.Errorf("el nombre del cliente es demasiado largo (máx. 60)")
+	}
+	same := func(a, b string) bool {
+		norm := func(p string) string {
+			return strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, `\`, "/"), "/"))
+		}
+		return norm(a) == norm(b)
+	}
+	s.mu.Lock()
+	// One rule per folder, however its path was typed.
+	for existing := range s.cfg.FolderClients {
+		if same(existing, folder) {
+			delete(s.cfg.FolderClients, existing)
+		}
+	}
+	if client != "" {
+		if s.cfg.FolderClients == nil {
+			s.cfg.FolderClients = map[string]string{}
+		}
+		s.cfg.FolderClients[folder] = client
+	}
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// SetProjectClient assigns a Claude Code project (by path) to a client or
+// label. An empty client removes the assignment.
+func (s *Service) SetProjectClient(path, client string) error {
+	path = strings.TrimSpace(path)
+	client = strings.TrimSpace(client)
+	if path == "" {
+		return fmt.Errorf("proyecto vacío")
+	}
+	if len(client) > 60 {
+		return fmt.Errorf("el nombre del cliente es demasiado largo (máx. 60)")
+	}
+	s.mu.Lock()
+	if client == "" {
+		delete(s.cfg.ProjectClients, path)
+	} else {
+		if s.cfg.ProjectClients == nil {
+			s.cfg.ProjectClients = map[string]string{}
+		}
+		s.cfg.ProjectClients[path] = client
+	}
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
 }
 
 // KeyPreview returns a redacted preview of the stored key, or "" when none.
@@ -1199,11 +1349,112 @@ type HistoryResult struct {
 // reads no network at all — it is the one number Karina can show with zero
 // ambiguity, straight from the same files Claude Code itself writes.
 func (s *Service) ClaudeCodeUsage(span domain.HistorySpan) (transcripts.Summary, error) {
-	root, err := transcripts.DefaultRoot()
+	root, err := s.transcriptsRoot()
 	if err != nil {
 		return transcripts.Summary{}, err
 	}
-	return transcripts.Scan(root, span.Start(time.Now()))
+	summary, err := transcripts.Scan(root, span.Start(time.Now()))
+	if err != nil {
+		return transcripts.Summary{}, err
+	}
+	s.mu.Lock()
+	byPath := make(map[string]string, len(s.cfg.ProjectClients))
+	for path, client := range s.cfg.ProjectClients {
+		byPath[path] = client
+	}
+	byFolder := make(map[string]string, len(s.cfg.FolderClients))
+	for folder, client := range s.cfg.FolderClients {
+		byFolder[folder] = client
+	}
+	s.mu.Unlock()
+	summary.AssignClients(byPath, byFolder)
+	return summary, nil
+}
+
+func (s *Service) transcriptsRoot() (string, error) {
+	if s.transcriptsDir != "" {
+		return s.transcriptsDir, nil
+	}
+	return transcripts.DefaultRoot()
+}
+
+// ExportClientReportCSV renders the Claude Code usage of a span grouped by
+// client and project: tokens and estimated cost at API list prices. It is
+// the report a freelancer or agency hands to (or keeps per) client.
+func (s *Service) ExportClientReportCSV(span domain.HistorySpan) ([]byte, error) {
+	summary, err := s.ClaudeCodeUsage(span)
+	if err != nil {
+		return nil, err
+	}
+	if !summary.Available || len(summary.Projects) == 0 {
+		return nil, fmt.Errorf("no hay actividad de Claude Code en este periodo")
+	}
+
+	projects := append([]transcripts.ProjectUsage(nil), summary.Projects...)
+	sort.SliceStable(projects, func(i, j int) bool {
+		// Named clients first (alphabetical), unassigned projects last.
+		ci, cj := projects[i].Client, projects[j].Client
+		if ci != cj {
+			if ci == "" || cj == "" {
+				return cj == ""
+			}
+			return ci < cj
+		}
+		return projects[i].CostUSD > projects[j].CostUSD
+	})
+
+	var buf bytes.Buffer
+	// BOM so Excel opens the accents correctly.
+	buf.Write([]byte{0xEF, 0xBB, 0xBF})
+	w := csv.NewWriter(&buf)
+	_ = w.Write([]string{
+		"cliente", "proyecto", "ruta", "sesiones",
+		"tokens_entrada", "tokens_salida", "tokens_cache_escritura", "tokens_cache_lectura",
+		"tokens_total", "costo_estimado_usd",
+	})
+	row := func(client, label, path string, sessions int, tk transcripts.Tokens, cost float64) {
+		_ = w.Write([]string{
+			client, label, path, strconv.Itoa(sessions),
+			strconv.FormatInt(tk.Input, 10),
+			strconv.FormatInt(tk.Output, 10),
+			strconv.FormatInt(tk.CacheCreation, 10),
+			strconv.FormatInt(tk.CacheRead, 10),
+			strconv.FormatInt(tk.Total(), 10),
+			strconv.FormatFloat(cost, 'f', 2, 64),
+		})
+	}
+	clientLabel := func(name string) string {
+		if name == "" {
+			return "Sin cliente"
+		}
+		return name
+	}
+	for _, p := range projects {
+		row(clientLabel(p.Client), p.Label, p.Path, p.Sessions, p.Tokens, p.CostUSD)
+	}
+	for _, c := range summary.Clients {
+		row(clientLabel(c.Name), "TOTAL CLIENTE", "", c.Sessions, c.Tokens, c.CostUSD)
+	}
+	row("TOTAL", "", "", 0, summary.Total, summary.CostUSD)
+	_ = w.Write([]string{
+		"nota",
+		fmt.Sprintf("Costo estimado a precios de lista de la API de Anthropic al %s; no es una factura. Periodo: %s.", summary.PricesAsOf, span),
+	})
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, fmt.Errorf("generar csv: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// ClaudeCodeDetected reports whether Claude Code has left transcripts on this
+// machine. The UI uses it to decide whether to offer the Claude Code section.
+func (s *Service) ClaudeCodeDetected() bool {
+	root, err := s.transcriptsRoot()
+	if err != nil {
+		return false
+	}
+	return transcripts.Detected(root)
 }
 
 // History returns downsampled local observations for a provider and span.

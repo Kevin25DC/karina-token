@@ -28,6 +28,37 @@ test('muestra el onboarding en el primer arranque', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('Claude Code solo aparece si se usa en el equipo o hay un proveedor Claude', async ({
+  page,
+}) => {
+  await installBridge(page);
+  await page.goto('/');
+  const nav = page.getByRole('navigation');
+  await expect(nav.getByRole('button', { name: /Ajustes/ })).toBeVisible();
+  await expect(nav.getByRole('button', { name: /Claude Code/ })).toHaveCount(0);
+
+  await installBridge(page, { claudeCodeDetected: true });
+  await page.goto('/');
+  await expect(nav.getByRole('button', { name: /Claude Code/ })).toBeVisible();
+});
+
+test('la mascota refleja el consumo', async ({ page }) => {
+  const errors = trackErrors(page);
+  await installBridge(page);
+  await page.goto('/');
+  await expect(page.getByRole('img', { name: /Kari.*sleeping/ })).toBeVisible();
+  await expect(page.getByText('Conecta un proveedor y despierto')).toBeVisible();
+
+  await installBridge(page, {
+    providers: [anthropicMeta],
+    states: [{ ...anthropicState, used_tokens: 950_000 }],
+  });
+  await page.goto('/');
+  await expect(page.getByRole('img', { name: /Kari.*worried/ })).toBeVisible();
+  await expect(page.getByText(/Ojo, 95% en Anthropic Claude/)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('navega por todas las secciones', async ({ page }) => {
   const errors = trackErrors(page);
   await installBridge(page, { providers: [anthropicMeta], states: [anthropicState] });

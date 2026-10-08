@@ -34,6 +34,20 @@ type Config struct {
 	AlertsEnabled          bool                     `toml:"alerts_enabled"`
 	AlertThresholdPercent  int                      `toml:"alert_threshold_percent"`
 	Providers              map[string]ProviderEntry `toml:"providers"`
+	// WidgetMoved is true once the user has dragged the widget; WidgetCenterX
+	// and WidgetTopY are then the top-centre point where they left it.
+	WidgetMoved   bool `toml:"widget_moved"`
+	WidgetCenterX int  `toml:"widget_center_x"`
+	WidgetTopY    int  `toml:"widget_top_y"`
+	// SubscriptionMonthlyUSD is what the user pays per month for their Claude
+	// plan; 0 means not set. Used only to compare against API-equivalent cost.
+	SubscriptionMonthlyUSD float64 `toml:"subscription_monthly_usd"`
+	// ProjectClients maps a Claude Code project path to the client/label the
+	// user assigned to it.
+	ProjectClients map[string]string `toml:"project_clients"`
+	// FolderClients maps a parent folder to the client of every project
+	// under it. An entry in ProjectClients overrides it for that project.
+	FolderClients map[string]string `toml:"folder_clients"`
 }
 
 // Default returns the default configuration.

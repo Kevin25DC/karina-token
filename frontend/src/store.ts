@@ -24,6 +24,8 @@ interface AppState {
   config: ConfigSnapshot | null;
   info: AppInfo | null;
   booted: boolean;
+  /** Claude Code se ha usado en este equipo (hay transcripts locales). */
+  claudeCodeDetected: boolean;
   cycleCount: number;
   widgetMode: boolean;
   view: View;
@@ -71,6 +73,7 @@ export const useStore = create<AppState>((set, get) => ({
   config: null,
   info: null,
   booted: false,
+  claudeCodeDetected: false,
   cycleCount: 0,
   widgetMode: false,
   view: 'dashboard',
@@ -83,16 +86,25 @@ export const useStore = create<AppState>((set, get) => ({
   boot: async () => {
     if (bootStarted) return;
     bootStarted = true;
-    const [info, config, meta, states] = await Promise.all([
+    const [info, config, meta, states, claudeCodeDetected] = await Promise.all([
       api.info(),
       api.config(),
       api.listProviders(),
       api.states(),
+      api.claudeCodeDetected().catch(() => false),
     ]);
     const map: Record<ProviderID, ProviderState> = {};
     for (const s of states) map[s.provider] = s;
     const redacted = await loadRedacted(meta);
-    set({ info, config, meta, states: map, redacted, booted: true });
+    set({
+      info,
+      config,
+      meta,
+      states: map,
+      redacted,
+      claudeCodeDetected: !!claudeCodeDetected,
+      booted: true,
+    });
 
     // Live events pushed from the Go side.
     onEvent('provider:update', (e) => get().applyEvent(e));

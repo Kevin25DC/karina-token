@@ -16,6 +16,7 @@ export interface BridgeData {
   update: UpdateInfo;
   history: HistoryResult;
   claudeCode: ClaudeCodeUsageSummary;
+  claudeCodeDetected: boolean;
 }
 
 const zeroTokens = {
@@ -60,6 +61,7 @@ export const defaults: BridgeData = {
     webhook_configured: false,
     webhook_preview: '',
     data_dir: '/tmp/karina-e2e',
+    subscription_monthly_usd: 0,
   },
   providers: [],
   states: [],
@@ -78,7 +80,20 @@ export const defaults: BridgeData = {
     has_billing: false,
     points: [],
   },
-  claudeCode: { available: false, projects: null, days: null, total: zeroTokens },
+  claudeCode: {
+    available: false,
+    projects: null,
+    days: null,
+    models: null,
+    total: zeroTokens,
+    cost_usd: 0,
+    unpriced_tokens: 0,
+    prices_as_of: '2026-01-01',
+    clients: null,
+    client_names: null,
+    client_folders: null,
+  },
+  claudeCodeDetected: false,
 };
 
 /**
@@ -98,6 +113,7 @@ export async function installBridge(page: Page, overrides: Partial<BridgeData> =
       CheckForUpdate: d.update,
       History: d.history,
       ClaudeCodeUsage: d.claudeCode,
+      ClaudeCodeDetected: d.claudeCodeDetected,
       ExportHistory: '/tmp/karina-e2e/historial.csv',
     };
     const w = window as unknown as Record<string, unknown>;

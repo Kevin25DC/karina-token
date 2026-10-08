@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +14,6 @@ import (
 
 	"karina/internal/claudesub"
 	"karina/internal/core"
-	"karina/internal/credentials"
 	"karina/internal/domain"
 	"karina/internal/platform"
 	"karina/internal/transcripts"
@@ -24,11 +22,15 @@ import (
 
 // Widget (ventana compacta) geometry.
 const (
-	widgetWidth  = 336
-	widgetMargin = 20
-	widgetRow    = 108
-	widgetHeader = 150
-	widgetMaxH   = 680
+	// The widget is an "island" hanging from the top-centre of the screen: a
+	// small pill that expands into a panel while the pointer is over it.
+	islandPillW  = 240
+	islandPillH  = 46
+	islandWidth  = 500
+	islandHeader = 64 // toolbar + padding
+	islandRow    = 82
+	islandMinH   = 214
+	islandMaxH   = 560
 	normalWidth  = 1180
 	normalHeight = 780
 )
@@ -44,6 +46,12 @@ type App struct {
 	icon        []byte
 	trayOK      bool
 	widgetMode  bool
+
+	// Island (widget) placement. The anchor is its top-centre point; Last is
+	// where Karina last put the window, to tell a user drag apart.
+	islandPlaced             bool
+	islandCX, islandY        int
+	islandLastX, islandLastY int
 
 	oauthMu    sync.Mutex
 	oauthPKCE  claudesub.PKCE
@@ -134,62 +142,154 @@ func (a *App) CheckForUpdate() updater.Info {
 	return info
 }
 
-// EnterWidgetMode shrinks the window into a compact, always-on-top widget
-// pinned to the bottom-right corner, showing the live usage bars.
+// EnterWidgetMode shrinks the window into an always-on-top "island" hanging
+// from the top-centre of the screen. It starts collapsed (see
+// SetWidgetExpanded).
 func (a *App) EnterWidgetMode() error {
 	if a.ctx == nil {
 		return errors.New("aplicación no iniciada")
 	}
-	n := 0
-	for _, m := range a.svc.ListProviders() {
-		if m.Enabled {
-			n++
-		}
-	}
-	if n < 1 {
-		n = 1
-	}
-	h := widgetHeader + n*widgetRow
-	if h > widgetMaxH {
-		h = widgetMaxH
-	}
-
 	// A maximised window cannot be shrunk; unmaximise first.
 	runtime.WindowUnmaximise(a.ctx)
 	runtime.WindowSetAlwaysOnTop(a.ctx, true)
-	runtime.WindowSetMinSize(a.ctx, 300, 160)
-	runtime.WindowSetSize(a.ctx, widgetWidth, h)
+	runtime.WindowSetMinSize(a.ctx, 160, 40)
+	a.widgetMode = true
+	a.placeIsland(false)
 
-	if screens, err := runtime.ScreenGetAll(a.ctx); err == nil && len(screens) > 0 {
-		sc := screens[0]
-		for _, s := range screens {
-			if s.IsPrimary {
-				sc = s
-				break
+	runtime.EventsEmit(a.ctx, "mode:widget", true)
+	a.log.Info("widget mode enabled")
+	return nil
+}
+
+// SetWidgetExpanded switches the island between its collapsed pill and the
+// expanded panel. The frontend calls it when the pointer enters or leaves.
+func (a *App) SetWidgetExpanded(expanded bool) error {
+	if a.ctx == nil {
+		return errors.New("aplicación no iniciada")
+	}
+	if !a.widgetMode {
+		return nil
+	}
+	a.placeIsland(expanded)
+	return nil
+}
+
+// placeIsland sizes the widget window and puts it at its anchor: the
+// top-centre of the screen by default, or wherever the user dragged it.
+func (a *App) placeIsland(expanded bool) {
+	w, h := islandPillW, islandPillH
+	if expanded {
+		n := 0
+		for _, m := range a.svc.ListProviders() {
+			if m.Enabled {
+				n++
 			}
 		}
-		sw, sh := sc.Size.Width, sc.Size.Height
-		if sw <= 0 {
-			sw = sc.Width
+		if n < 1 {
+			n = 1
 		}
-		if sh <= 0 {
-			sh = sc.Height
+		w = islandWidth
+		h = islandHeader + n*islandRow
+		if h < islandMinH {
+			h = islandMinH
 		}
-		x := sw - widgetWidth - widgetMargin
-		y := sh - h - widgetMargin
-		if x < 0 {
-			x = 0
+		if h > islandMaxH {
+			h = islandMaxH
 		}
-		if y < 0 {
-			y = 0
+	}
+	sw, sh := a.screenSize()
+	if !a.islandPlaced {
+		// First placement of this widget session: where the user last left
+		// it, or the top-centre of the screen.
+		cx, y, moved := a.svc.WidgetAnchor()
+		if !moved {
+			cx, y = sw/2, 0
 		}
-		runtime.WindowSetPosition(a.ctx, x, y)
+		a.islandCX, a.islandY = cx, y
+		a.islandPlaced = true
+	} else {
+		a.captureIslandDrag()
 	}
 
-	a.widgetMode = true
-	runtime.EventsEmit(a.ctx, "mode:widget", true)
-	a.log.Info("widget mode enabled", "height", h)
+	runtime.WindowSetSize(a.ctx, w, h)
+
+	// The anchor is the island's top-centre, so the pill and the panel grow
+	// from the same point. Keep the whole window on screen.
+	x, y := a.islandCX-w/2, a.islandY
+	if sw > 0 && x > sw-w {
+		x = sw - w
+	}
+	if sh > 0 && y > sh-h {
+		y = sh - h
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	runtime.WindowSetPosition(a.ctx, x, y)
+	a.islandLastX, a.islandLastY = x, y
+	// Docked at the top edge the island keeps square top corners.
+	runtime.EventsEmit(a.ctx, "widget:docked", y == 0)
+}
+
+// captureIslandDrag notices that the user dragged the island since Karina
+// last positioned it, and adopts (and remembers) the new spot.
+func (a *App) captureIslandDrag() {
+	x, y := runtime.WindowGetPosition(a.ctx)
+	if x == a.islandLastX && y == a.islandLastY {
+		return
+	}
+	w, _ := runtime.WindowGetSize(a.ctx)
+	a.islandCX, a.islandY = x+w/2, y
+	a.islandLastX, a.islandLastY = x, y
+	if err := a.svc.SetWidgetAnchor(a.islandCX, a.islandY); err != nil {
+		a.log.Warn("could not save widget position", "error", err.Error())
+	}
+}
+
+// ResetWidgetPosition sends the island back to the top-centre of the screen.
+func (a *App) ResetWidgetPosition() error {
+	if a.ctx == nil {
+		return errors.New("aplicación no iniciada")
+	}
+	if !a.widgetMode {
+		return nil
+	}
+	if err := a.svc.ClearWidgetAnchor(); err != nil {
+		return err
+	}
+	a.islandPlaced = false
+	a.placeIsland(true)
 	return nil
+}
+
+// screenSize returns the size of the screen the window is on.
+func (a *App) screenSize() (w, h int) {
+	screens, err := runtime.ScreenGetAll(a.ctx)
+	if err != nil || len(screens) == 0 {
+		return 0, 0
+	}
+	sc := screens[0]
+	for _, s := range screens {
+		if s.IsPrimary {
+			sc = s
+		}
+	}
+	for _, s := range screens {
+		if s.IsCurrent {
+			sc = s
+		}
+	}
+	w, h = sc.Size.Width, sc.Size.Height
+	if w <= 0 {
+		w = sc.Width
+	}
+	if h <= 0 {
+		h = sc.Height
+	}
+	return w, h
 }
 
 // ExitWidgetMode restores the normal dashboard window.
@@ -197,6 +297,10 @@ func (a *App) ExitWidgetMode() error {
 	if a.ctx == nil {
 		return errors.New("aplicación no iniciada")
 	}
+	if a.widgetMode && a.islandPlaced {
+		a.captureIslandDrag()
+	}
+	a.islandPlaced = false
 	a.widgetMode = false
 	runtime.WindowSetAlwaysOnTop(a.ctx, false)
 	runtime.WindowSetMinSize(a.ctx, 860, 600)
@@ -333,10 +437,8 @@ func (a *App) ClaudeOAuthComplete(codeInput string) claudesub.Result {
 	a.oauthMu.Unlock()
 
 	// Persist the token in the OS credential store (never logged).
-	if payload, err := json.Marshal(tok); err == nil {
-		if err := credentials.NewStore().Save(credentials.ClaudeOAuthAccount, string(payload)); err != nil {
-			a.log.Warn("could not store claude oauth token", "error", err.Error())
-		}
+	if err := claudesub.SaveOwnToken(tok); err != nil {
+		a.log.Warn("could not store claude oauth token", "error", err.Error())
 	}
 
 	res := a.svc.ExperimentalClaudeSubscription(tok.AccessToken)
@@ -404,10 +506,64 @@ func (a *App) History(provider string, span string) (core.HistoryResult, error) 
 	return a.svc.History(domain.ProviderID(provider), domain.HistorySpan(span))
 }
 
+// ClaudeCodeDetected reports whether Claude Code has been used on this
+// machine (local transcripts exist).
+func (a *App) ClaudeCodeDetected() bool {
+	return a.svc.ClaudeCodeDetected()
+}
+
 // ClaudeCodeUsage returns real local Claude Code token usage per project
 // and per day, read straight from ~/.claude/projects, for the given span.
 func (a *App) ClaudeCodeUsage(span string) (transcripts.Summary, error) {
 	return a.svc.ClaudeCodeUsage(domain.HistorySpan(span))
+}
+
+// SetProjectClient assigns a Claude Code project to a client/label ("" to
+// remove the assignment).
+func (a *App) SetProjectClient(path string, client string) error {
+	return a.svc.SetProjectClient(path, client)
+}
+
+// SetFolderClient assigns every project under a folder to a client/label
+// ("" to remove the rule).
+func (a *App) SetFolderClient(folder string, client string) error {
+	return a.svc.SetFolderClient(folder, client)
+}
+
+// SetSubscriptionPrice stores the monthly price of the user's Claude plan.
+func (a *App) SetSubscriptionPrice(usd float64) error {
+	return a.svc.SetSubscriptionPrice(usd)
+}
+
+// ExportClientReport opens a native "save as" dialog and writes the Claude
+// Code usage of a span, grouped by client and project, to a CSV file.
+// Returns the saved path, or "" if the user cancels the dialog.
+func (a *App) ExportClientReport(span string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("aplicación no iniciada")
+	}
+	data, err := a.svc.ExportClientReportCSV(domain.HistorySpan(span))
+	if err != nil {
+		return "", err
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Exportar reporte por cliente",
+		DefaultFilename: fmt.Sprintf("karina-clientes-%s-%s.csv", span, time.Now().Format("2006-01-02")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "CSV (*.csv)", Pattern: "*.csv"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("guardar archivo: %w", err)
+	}
+	a.log.Info("client report exported", "span", span, "path", path)
+	return path, nil
 }
 
 // ExportHistory opens a native "save as" dialog and writes the raw local

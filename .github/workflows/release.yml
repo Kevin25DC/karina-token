@@ -49,8 +49,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Título y notas en español, tomados de la sección de esta versión
+          # en CHANGELOG.md ("## [X.Y.Z] - fecha · Título").
+          version="${GITHUB_REF_NAME#v}"
+          heading="$(grep -m1 "^## \[$version\]" CHANGELOG.md || true)"
+          title="Karina $GITHUB_REF_NAME"
+          case "$heading" in
+            *" · "*) title="$title · ${heading#* · }" ;;
+          esac
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            /^## \[/ { on = 0 }
+            on
+          ' CHANGELOG.md > release-notes.md
+
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+          elif [ -s release-notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$title" --notes-file release-notes.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$title" --generate-notes
           fi

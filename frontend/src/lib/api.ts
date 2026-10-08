@@ -81,8 +81,18 @@ export const api = {
   completeOnboarding: () => call<void>(() => App.CompleteOnboarding()),
   enterWidgetMode: () => call<void>(() => App.EnterWidgetMode()),
   exitWidgetMode: () => call<void>(() => App.ExitWidgetMode()),
+  resetWidgetPosition: () => call<void>(() => App.ResetWidgetPosition()),
+  setWidgetExpanded: (expanded: boolean) =>
+    call<void>(() => App.SetWidgetExpanded(expanded)),
   history: (provider: ProviderID, span: HistorySpan) =>
     call<HistoryResult>(() => App.History(provider, span)),
+  claudeCodeDetected: () => call<boolean>(() => App.ClaudeCodeDetected()),
+  setProjectClient: (path: string, client: string) =>
+    call<void>(() => App.SetProjectClient(path, client)),
+  setFolderClient: (folder: string, client: string) =>
+    call<void>(() => App.SetFolderClient(folder, client)),
+  setSubscriptionPrice: (usd: number) => call<void>(() => App.SetSubscriptionPrice(usd)),
+  exportClientReport: (span: HistorySpan) => call<string>(() => App.ExportClientReport(span)),
   claudeCodeUsage: (span: HistorySpan) =>
     call<ClaudeCodeUsageSummary>(() => App.ClaudeCodeUsage(span)),
   exportHistory: (provider: ProviderID, span: HistorySpan) =>
@@ -93,6 +103,11 @@ export const api = {
 /** Register a backend event listener (keyed by event kind). */
 export function onEvent(kind: string, cb: (payload: EventPayload) => void): void {
   EventsOn(kind, (data: unknown) => cb(data as EventPayload));
+}
+
+/** Listen for the widget docking to / leaving the top edge of the screen. */
+export function onWidgetDocked(cb: (docked: boolean) => void): void {
+  EventsOn('widget:docked', (data: unknown) => cb(Boolean(data)));
 }
 
 /** Listen for widget-mode toggles emitted by the backend. */

@@ -115,6 +115,14 @@ export function EnterWidgetMode() {
   return call('EnterWidgetMode', []);
 }
 
+export function SetWidgetExpanded(expanded) {
+  return call('SetWidgetExpanded', [expanded]);
+}
+
+export function ResetWidgetPosition() {
+  return call('ResetWidgetPosition', []);
+}
+
 export function ExitWidgetMode() {
   return call('ExitWidgetMode', []);
 }
@@ -125,6 +133,26 @@ export function History(provider, span) {
 
 export function ExportHistory(provider, span) {
   return call('ExportHistory', [provider, span]);
+}
+
+export function ClaudeCodeDetected() {
+  return call('ClaudeCodeDetected', []);
+}
+
+export function SetProjectClient(path, client) {
+  return call('SetProjectClient', [path, client]);
+}
+
+export function SetFolderClient(folder, client) {
+  return call('SetFolderClient', [folder, client]);
+}
+
+export function SetSubscriptionPrice(usd) {
+  return call('SetSubscriptionPrice', [usd]);
+}
+
+export function ExportClientReport(span) {
+  return call('ExportClientReport', [span]);
 }
 
 export function ClaudeCodeUsage(span) {

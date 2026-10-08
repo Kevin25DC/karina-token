@@ -112,18 +112,63 @@ export interface ClaudeCodeProjectUsage {
   label: string;
   sessions: number;
   tokens: UsageTokens;
+  /** Costo estimado a precios de lista de la API. */
+  cost_usd: number;
+  /** Cliente o etiqueta asignado por el usuario ('' si no tiene). */
+  client: string;
+  /** true si el cliente viene de una regla por carpeta y no del proyecto. */
+  client_inherited: boolean;
+  models: ClaudeCodeModelUsage[] | null;
+}
+
+/** Regla que asigna a un cliente todos los proyectos bajo una carpeta. */
+export interface ClaudeCodeFolderRule {
+  path: string;
+  client: string;
+  /** Proyectos del periodo a los que aplica. */
+  projects: number;
+}
+
+export interface ClaudeCodeClientUsage {
+  /** '' agrupa los proyectos sin cliente. */
+  name: string;
+  projects: number;
+  sessions: number;
+  tokens: UsageTokens;
+  cost_usd: number;
+}
+
+export interface ClaudeCodeModelUsage {
+  /** Id del modelo tal cual lo registra Claude Code. */
+  model: string;
+  /** Respuestas del asistente contadas para este modelo. */
+  turns: number;
+  tokens: UsageTokens;
+  cost_usd: number;
+  /** false si Karina no tiene precio para este modelo. */
+  priced: boolean;
 }
 
 export interface ClaudeCodeDayUsage {
   date: string;
   tokens: UsageTokens;
+  cost_usd: number;
 }
 
 export interface ClaudeCodeUsageSummary {
   available: boolean;
   projects: ClaudeCodeProjectUsage[] | null;
   days: ClaudeCodeDayUsage[] | null;
+  models: ClaudeCodeModelUsage[] | null;
   total: UsageTokens;
+  /** Costo estimado del total a precios de lista de la API. */
+  cost_usd: number;
+  /** Tokens de modelos sin precio conocido (no entran en cost_usd). */
+  unpriced_tokens: number;
+  prices_as_of: string;
+  clients: ClaudeCodeClientUsage[] | null;
+  client_names: string[] | null;
+  client_folders: ClaudeCodeFolderRule[] | null;
 }
 
 export interface ConfigSnapshot {
@@ -135,6 +180,8 @@ export interface ConfigSnapshot {
   webhook_configured: boolean;
   webhook_preview: string;
   data_dir: string;
+  /** Precio mensual del plan de Claude del usuario (0 = sin definir). */
+  subscription_monthly_usd: number;
 }
 
 export interface TestResult {
