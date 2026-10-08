@@ -2,6 +2,33 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.8.0] - 2026-10-08 · Horas por cliente, reporte en PDF y presupuestos
+
+Karina ahora mide cuánto tiempo trabajas con Claude Code para cada cliente,
+genera el reporte para entregárselo y te avisa si te pasas del presupuesto.
+
+### Añadido
+- **Horas activas** por proyecto y por cliente, calculadas a partir de la
+  actividad de Claude Code. La pausa que corta un tramo de trabajo es
+  ajustable (5, 10, 15 o 30 minutos).
+- **Reporte para el cliente en PDF**: horas, proyectos, sesiones y costo
+  estimado, por cliente o de todos, con tu nombre o empresa en el encabezado.
+  Periodos: este mes, mes pasado, 7 días, 30 días u hoy.
+- **Presupuesto mensual por cliente**, con aviso al 80 % y al 100 % (también
+  por webhook). Kari se preocupa cuando un cliente va justo.
+- **Intervalo propio para Claude Pro/Max** en Ajustes (5 minutos por defecto,
+  mínimo 2).
+
+### Cambiado
+- El reporte CSV usa los mismos periodos que el PDF e incluye las horas.
+- Claude Pro/Max ya no sigue el intervalo general: Anthropic bloquea con un
+  error 429 las consultas frecuentes de uso.
+
+### Notas
+- Las horas son una estimación: cuentan el tiempo entre respuestas de Claude
+  Code, no el tiempo que pasas leyendo o pensando sin pedirle nada.
+- El PDF se genera desde el diálogo de impresión («Guardar como PDF»).
+
 ## [0.7.0] - 2026-10-08 · Mascota Kari, widget flotante y costo por cliente
 
 Karina estrena mascota y un widget nuevo, y ahora dice cuánto cuesta tu uso
