@@ -235,30 +235,44 @@ func readTokenFile(path string) string {
 	return findToken(m, 0)
 }
 
-// tokenKeys are the JSON field names Claude Code has used across versions.
-var tokenKeys = map[string]bool{
-	"token":         true,
-	"accessToken":   true,
-	"access_token":  true,
-	"oauthToken":    true,
-	"oauth_token":   true,
-	"claudeAiOauth": true,
+// tokenKeys are the JSON field names Claude Code has used across versions
+// for the access token, in lookup order.
+var tokenKeys = []string{
+	"accessToken",
+	"access_token",
+	"oauthToken",
+	"oauth_token",
+	"token",
 }
 
-// findToken does a bounded DFS looking for a token-like string value.
+// findToken does a bounded DFS looking for an access-token-like string value.
+// Known access-token fields win; refresh tokens are never returned, since
+// they sit next to the access token and also start with "sk-ant-".
 func findToken(v any, depth int) string {
 	if depth > 6 {
 		return ""
 	}
 	switch t := v.(type) {
 	case map[string]any:
-		for k, child := range t {
-			if s, ok := child.(string); ok {
-				if looksLikeToken(s) || (tokenKeys[k] && len(s) > 20) {
-					return s
-				}
+		for _, k := range tokenKeys {
+			if s, ok := t[k].(string); ok && len(s) > 20 {
+				return s
 			}
-			if s := findToken(child, depth+1); s != "" {
+		}
+		// Sorted so the result does not depend on map iteration order.
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if strings.Contains(strings.ToLower(k), "refresh") {
+				continue
+			}
+			if s, ok := t[k].(string); ok && looksLikeToken(s) {
+				return s
+			}
+			if s := findToken(t[k], depth+1); s != "" {
 				return s
 			}
 		}

@@ -199,3 +199,21 @@ func TestReadUsageDeduplicatesWindows(t *testing.T) {
 		t.Fatalf("weekly window wrong: %+v", res.Windows[1])
 	}
 }
+
+func TestFindTokenNeverReturnsRefreshToken(t *testing.T) {
+	cases := []map[string]any{
+		{"claudeAiOauth": map[string]any{"refreshToken": "sk-ant-ort01-zzz", "accessToken": "sk-ant-oat01-aaaaaaaaaaaaaaaaaaaa"}},
+		{"refresh_token": "sk-ant-ort01-zzz", "nested": map[string]any{"value": "sk-ant-oat01-aaaaaaaaaaaaaaaaaaaa"}},
+	}
+	// Map iteration order is random: repeat to catch order-dependent picks.
+	for i := 0; i < 200; i++ {
+		for _, c := range cases {
+			if got := findToken(c, 0); got != "sk-ant-oat01-aaaaaaaaaaaaaaaaaaaa" {
+				t.Fatalf("findToken=%q", got)
+			}
+		}
+	}
+	if got := findToken(map[string]any{"refreshToken": "sk-ant-ort01-zzz"}, 0); got != "" {
+		t.Fatalf("refresh token returned: %q", got)
+	}
+}
