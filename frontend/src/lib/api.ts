@@ -103,6 +103,8 @@ export const api = {
   clientBudgets: () => call<ClientBudget[]>(() => App.ClientBudgets()),
   setClientBudget: (client: string, usd: number) =>
     call<void>(() => App.SetClientBudget(client, usd)),
+  setClientRate: (client: string, usd: number) =>
+    call<void>(() => App.SetClientRate(client, usd)),
   setIdleGapMinutes: (minutes: number) => call<void>(() => App.SetIdleGapMinutes(minutes)),
   setReportBusinessName: (name: string) => call<void>(() => App.SetReportBusinessName(name)),
   claudeCodeUsage: (span: HistorySpan) =>

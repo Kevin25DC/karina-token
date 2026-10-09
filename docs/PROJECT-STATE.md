@@ -1,7 +1,7 @@
 # Estado del proyecto Karina
 
 Documento de memoria: qué se construyó, decisiones, versiones y pendientes.
-Última actualización: 2026-10-08 · Versión actual: **v0.8.0**.
+Última actualización: 2026-10-09 · Versión actual: **v0.9.0**.
 
 ## Resumen
 

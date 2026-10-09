@@ -26,15 +26,16 @@ import { Kbd, Surface } from '@/components/primitives';
 const NAV: Array<{ id: View; label: string; icon: typeof BarChart3 }> = [
   { id: 'dashboard', label: 'Panel', icon: SlidersHorizontal },
   { id: 'history', label: 'Historial de uso', icon: BarChart3 },
-  { id: 'claudecode', label: 'Claude Code', icon: Terminal },
+  { id: 'claudecode', label: 'Agentes de código', icon: Terminal },
   { id: 'settings', label: 'Ajustes', icon: Settings },
 ];
 
-// Proveedores de Claude: añadir cualquiera habilita la sección Claude Code.
+// Proveedores de Claude: añadir cualquiera habilita la sección de agentes.
 const CLAUDE_PROVIDERS = ['anthropic', 'claude_subscription'];
 
 export default function App() {
-  // Claude Code solo se ofrece si se ha usado en este equipo o si el usuario
+  // La sección de agentes de código (Claude Code, Codex CLI, Gemini CLI) solo
+  // se ofrece si alguno se ha usado en este equipo o si el usuario
   // añadió Claude como proveedor.
   const showClaudeCode = useStore(
     (s) =>

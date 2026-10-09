@@ -50,14 +50,44 @@ func (s *Service) usageFor(since, until time.Time) (transcripts.Summary, error) 
 	for folder, client := range s.cfg.FolderClients {
 		byFolder[folder] = client
 	}
+	rates := make(map[string]float64, len(s.cfg.ClientRates))
+	for client, rate := range s.cfg.ClientRates {
+		rates[client] = rate
+	}
 	s.mu.Unlock()
 
-	summary, err := transcripts.ScanRange(root, transcripts.Range{Since: since, Until: until, IdleGap: gap})
+	r := s.agentRoots()
+	r.Since, r.Until, r.IdleGap = since, until, gap
+	summary, err := transcripts.ScanRange(root, r)
 	if err != nil {
 		return transcripts.Summary{}, err
 	}
 	summary.AssignClients(byPath, byFolder)
+	summary.ApplyRates(rates)
 	return summary, nil
+}
+
+// SetClientRate sets what the user charges a client per hour, in USD (0
+// removes it). It is used to value the worked time against the AI cost.
+func (s *Service) SetClientRate(client string, usd float64) error {
+	client = strings.TrimSpace(client)
+	if client == "" {
+		return fmt.Errorf("indica el cliente")
+	}
+	if usd < 0 || usd > 100_000 || usd != usd {
+		return fmt.Errorf("tarifa inválida")
+	}
+	s.mu.Lock()
+	if usd == 0 {
+		delete(s.cfg.ClientRates, client)
+	} else {
+		if s.cfg.ClientRates == nil {
+			s.cfg.ClientRates = map[string]float64{}
+		}
+		s.cfg.ClientRates[client] = usd
+	}
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
 }
 
 func (s *Service) transcriptsRoot() (string, error) {
@@ -65,6 +95,31 @@ func (s *Service) transcriptsRoot() (string, error) {
 		return s.transcriptsDir, nil
 	}
 	return transcripts.DefaultRoot()
+}
+
+// agentRoots returns where the other coding agents keep their logs. When the
+// Claude directory is overridden (tests) the real home is never read: only
+// the directories given explicitly are used.
+func (s *Service) agentRoots() transcripts.Range {
+	if s.transcriptsDir != "" {
+		return transcripts.Range{CodexRoot: s.opts.CodexDir, GeminiRoot: s.opts.GeminiDir, OpenCodeDB: s.opts.OpenCodeDB}
+	}
+	var r transcripts.Range
+	r.CodexRoot, _ = transcripts.DefaultCodexRoot()
+	r.GeminiRoot, _ = transcripts.DefaultGeminiRoot()
+	r.OpenCodeDB, _ = transcripts.DefaultOpenCodeDB()
+	return r
+}
+
+// ClaudeCodeDetected reports whether a coding agent (Claude Code, Codex CLI
+// or Gemini CLI) has left session logs on this machine. The UI uses it to
+// decide whether to offer the coding-agents section.
+func (s *Service) ClaudeCodeDetected() bool {
+	root, err := s.transcriptsRoot()
+	if err != nil {
+		return false
+	}
+	return transcripts.Detected(root, s.agentRoots())
 }
 
 // SetIdleGapMinutes sets the pause that ends a stretch of work when
@@ -184,7 +239,7 @@ func (s *Service) ExportClientReportCSV(period string) ([]byte, error) {
 	}
 	summary := report.Summary
 	if !summary.Available || len(summary.Projects) == 0 {
-		return nil, fmt.Errorf("no hay actividad de Claude Code en este periodo")
+		return nil, fmt.Errorf("no hay actividad de agentes de código en este periodo")
 	}
 
 	projects := append([]transcripts.ProjectUsage(nil), summary.Projects...)
@@ -207,9 +262,13 @@ func (s *Service) ExportClientReportCSV(period string) ([]byte, error) {
 	_ = w.Write([]string{
 		"cliente", "proyecto", "ruta", "sesiones", "horas_activas",
 		"tokens_entrada", "tokens_salida", "tokens_cache_escritura", "tokens_cache_lectura",
-		"tokens_total", "costo_estimado_usd",
+		"tokens_total", "costo_estimado_usd", "facturable_por_horas_usd",
 	})
-	row := func(client, label, path string, sessions int, seconds int64, tk transcripts.Tokens, cost float64) {
+	row := func(client, label, path string, sessions int, seconds int64, tk transcripts.Tokens, cost, billable float64) {
+		billableCell := ""
+		if billable > 0 {
+			billableCell = strconv.FormatFloat(billable, 'f', 2, 64)
+		}
 		_ = w.Write([]string{
 			client, label, path, strconv.Itoa(sessions),
 			strconv.FormatFloat(float64(seconds)/3600, 'f', 2, 64),
@@ -219,6 +278,7 @@ func (s *Service) ExportClientReportCSV(period string) ([]byte, error) {
 			strconv.FormatInt(tk.CacheRead, 10),
 			strconv.FormatInt(tk.Total(), 10),
 			strconv.FormatFloat(cost, 'f', 2, 64),
+			billableCell,
 		})
 	}
 	clientLabel := func(name string) string {
@@ -228,16 +288,16 @@ func (s *Service) ExportClientReportCSV(period string) ([]byte, error) {
 		return name
 	}
 	for _, p := range projects {
-		row(clientLabel(p.Client), p.Label, p.Path, p.Sessions, p.ActiveSeconds, p.Tokens, p.CostUSD)
+		row(clientLabel(p.Client), p.Label, p.Path, p.Sessions, p.ActiveSeconds, p.Tokens, p.CostUSD, p.BillableUSD)
 	}
 	for _, c := range summary.Clients {
-		row(clientLabel(c.Name), "TOTAL CLIENTE", "", c.Sessions, c.ActiveSeconds, c.Tokens, c.CostUSD)
+		row(clientLabel(c.Name), "TOTAL CLIENTE", "", c.Sessions, c.ActiveSeconds, c.Tokens, c.CostUSD, c.BillableUSD)
 	}
-	row("TOTAL", "", "", 0, summary.ActiveSeconds, summary.Total, summary.CostUSD)
+	row("TOTAL", "", "", 0, summary.ActiveSeconds, summary.Total, summary.CostUSD, summary.BillableUSD)
 	_ = w.Write([]string{
 		"nota",
 		fmt.Sprintf("Periodo: %s. Costo estimado a precios de lista de la API de Anthropic al %s; no es una factura. "+
-			"Horas activas: tiempo entre respuestas de Claude Code con pausas de hasta %d min.",
+			"Horas activas: tiempo entre respuestas de los agentes de código con pausas de hasta %d min.",
 			report.PeriodLabel, summary.PricesAsOf, summary.IdleGapMinutes),
 	})
 	w.Flush()
@@ -374,7 +434,7 @@ func (s *Service) checkBudgets() {
 		if err := s.notify(title, msg); err != nil {
 			s.logger.Debug("os notification failed", "error", err.Error())
 		}
-		state := domain.ProviderState{Provider: "claude_code", DisplayName: "Claude Code"}
+		state := domain.ProviderState{Provider: "coding_agents", DisplayName: "Agentes de código"}
 		s.fireWebhook(title, msg, state, "Presupuesto "+b.Name, b.Percent, time.Time{})
 		s.logger.Info("budget alert fired", "client", b.Name, "percent", b.Percent)
 		s.emit(Event{Kind: EventThreshold, Message: fmt.Sprintf("%s: %s", b.Name, msg)})

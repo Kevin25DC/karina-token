@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Cpu, FolderGit2, Info, Terminal } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Cpu, FolderGit2, Info, Terminal } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
@@ -51,6 +51,8 @@ export function ClaudeCodeUsage() {
   const projects = summary?.projects ?? [];
   const days = summary?.days ?? [];
   const models = summary?.models ?? [];
+  const agents = summary?.agents ?? [];
+  const maxAgentTotal = Math.max(1, ...agents.map((a) => totalOf(a.tokens)));
   const grandTotal = Math.max(1, summary ? totalOf(summary.total) : 1);
   const maxModelTotal = Math.max(1, ...models.map((m) => totalOf(m.tokens)));
   const maxProjectTotal = Math.max(1, ...projects.map((p) => totalOf(p.tokens)));
@@ -67,14 +69,11 @@ export function ClaudeCodeUsage() {
       <header className="py-8">
         <div className="flex items-center gap-2">
           <Terminal className="h-5 w-5 text-zinc-400" />
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">Claude Code</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">Agentes de código</h1>
         </div>
         <p className="mt-1 text-sm text-zinc-500">
-          Consumo real leído directo de tus transcripts locales (
-          <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[11px]">
-            ~/.claude/projects
-          </code>
-          ) — sin depender de ninguna API ni endpoint Admin.
+          Consumo real leído de los registros locales de Claude Code, Codex CLI y Gemini CLI —
+          sin depender de ninguna API ni endpoint Admin.
         </p>
       </header>
 
@@ -111,22 +110,24 @@ export function ClaudeCodeUsage() {
         <Card className="flex flex-col items-center px-8 py-20 text-center">
           <Info className="h-6 w-6 text-zinc-600" />
           <p className="mt-3 text-sm font-medium text-zinc-300">
-            No encontramos transcripts de Claude Code en este equipo
+            No encontramos registros de agentes de código en este equipo
           </p>
           <p className="mt-1.5 max-w-md text-xs leading-relaxed text-zinc-500">
-            Karina busca en <code className="text-zinc-400">~/.claude/projects</code>, la
-            carpeta donde Claude Code guarda el historial de tus sesiones. Si usas Claude
-            Code en otra máquina, esta sección solo mostrará datos de esta.
+            Karina busca las sesiones de Claude Code (
+            <code className="text-zinc-400">~/.claude/projects</code>), Codex CLI (
+            <code className="text-zinc-400">~/.codex/sessions</code>) y Gemini CLI (
+            <code className="text-zinc-400">~/.gemini/tmp</code>). Si los usas en otra máquina,
+            esta sección solo mostrará datos de esta.
           </p>
         </Card>
       ) : projects.length === 0 ? (
         <Card className="flex flex-col items-center px-8 py-16 text-center">
           <Info className="h-6 w-6 text-zinc-600" />
           <p className="mt-3 text-sm font-medium text-zinc-300">
-            Sin actividad de Claude Code en este periodo
+            Sin actividad de agentes de código en este periodo
           </p>
           <p className="mt-1.5 max-w-md text-xs leading-relaxed text-zinc-500">
-            Prueba con un rango mayor, o usa Claude Code en este equipo y vuelve a revisar.
+            Prueba con un rango mayor, o usa un agente de código en este equipo y vuelve a revisar.
           </p>
         </Card>
       ) : (
@@ -137,6 +138,46 @@ export function ClaudeCodeUsage() {
 
           <ClientsCard summary={summary} onChanged={() => void fetchUsage()} />
 
+          {agents.length > 1 && (
+            <Card className="p-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+                <Bot className="h-4 w-4 text-violet-300" />
+                Por agente
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Qué herramienta hizo el trabajo. Todas suman en los proyectos, clientes y horas.
+              </p>
+              <div className="mt-5 space-y-3">
+                {agents.map((a) => {
+                  const total = totalOf(a.tokens);
+                  const pct = Math.max(2, (total / maxAgentTotal) * 100);
+                  return (
+                    <div key={a.agent}>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="truncate font-medium text-zinc-200">{a.name}</span>
+                        <span className="shrink-0 font-mono text-xs text-zinc-400">
+                          <span className="text-zinc-200">
+                            {a.unpriced_tokens >= total && total > 0
+                              ? 'sin precio'
+                              : formatMoney(a.cost_usd)}
+                          </span>{' '}
+                          · {formatTokens(total)} tokens · {Math.round((total / grandTotal) * 100)}% ·{' '}
+                          {a.turns} {a.turns === 1 ? 'respuesta' : 'respuestas'}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-violet-400 to-sky-400"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
           {models.length > 0 && (
             <Card className="p-6">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
@@ -144,7 +185,7 @@ export function ClaudeCodeUsage() {
                 Por modelo
               </h2>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Modelo que respondió cada turno, tal cual lo registra Claude Code.
+                Modelo que respondió cada turno, tal cual lo registra cada agente.
               </p>
               <div className="mt-5 space-y-3">
                 {models.map((m) => {

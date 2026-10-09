@@ -54,7 +54,9 @@ type Config struct {
 	// ClientBudgets maps a client to its monthly budget in USD. BudgetAlerts
 	// remembers the highest alert level already sent, keyed "YYYY-MM|client".
 	ClientBudgets map[string]float64 `toml:"client_budgets"`
-	BudgetAlerts  map[string]int     `toml:"budget_alerts"`
+	// ClientRates maps a client to what the user charges per hour, in USD.
+	ClientRates  map[string]float64 `toml:"client_rates"`
+	BudgetAlerts map[string]int     `toml:"budget_alerts"`
 	// SubscriptionMonthlyUSD is what the user pays per month for their Claude
 	// plan; 0 means not set. Used only to compare against API-equivalent cost.
 	SubscriptionMonthlyUSD float64 `toml:"subscription_monthly_usd"`

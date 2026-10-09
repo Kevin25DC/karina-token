@@ -96,6 +96,30 @@ func TestActiveTimeAndRange(t *testing.T) {
 	}
 }
 
+func TestApplyRates(t *testing.T) {
+	s := Summary{Projects: []ProjectUsage{
+		{Path: "/a", ActiveSeconds: 2 * 3600, CostUSD: 10},
+		{Path: "/b", ActiveSeconds: 3600, CostUSD: 5},
+		{Path: "/c", ActiveSeconds: 3600, CostUSD: 1},
+	}}
+	s.AssignClients(map[string]string{"/a": "Acme", "/b": "Globex"}, nil)
+	s.ApplyRates(map[string]float64{"Acme": 40})
+
+	byName := map[string]ClientUsage{}
+	for _, c := range s.Clients {
+		byName[c.Name] = c
+	}
+	if a := byName["Acme"]; a.BillableUSD != 80 || a.MarginUSD != 70 || a.HourlyRateUSD != 40 {
+		t.Fatalf("acme = %+v", a)
+	}
+	if g := byName["Globex"]; g.BillableUSD != 0 || g.MarginUSD != 0 {
+		t.Fatalf("client without rate must not be valued: %+v", g)
+	}
+	if s.BillableUSD != 80 || s.MarginUSD != 70 || s.Projects[0].BillableUSD != 80 {
+		t.Fatalf("totals = %v / %v", s.BillableUSD, s.MarginUSD)
+	}
+}
+
 func TestAssignClientsByFolder(t *testing.T) {
 	s := Summary{Projects: []ProjectUsage{
 		{Path: `C:\Work\Acme\web`, CostUSD: 1},

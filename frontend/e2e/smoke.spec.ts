@@ -28,18 +28,18 @@ test('muestra el onboarding en el primer arranque', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('Claude Code solo aparece si se usa en el equipo o hay un proveedor Claude', async ({
+test('Agentes de código solo aparece si se usan en el equipo o hay un proveedor Claude', async ({
   page,
 }) => {
   await installBridge(page);
   await page.goto('/');
   const nav = page.getByRole('navigation');
   await expect(nav.getByRole('button', { name: /Ajustes/ })).toBeVisible();
-  await expect(nav.getByRole('button', { name: /Claude Code/ })).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: /Agentes de código/ })).toHaveCount(0);
 
   await installBridge(page, { claudeCodeDetected: true });
   await page.goto('/');
-  await expect(nav.getByRole('button', { name: /Claude Code/ })).toBeVisible();
+  await expect(nav.getByRole('button', { name: /Agentes de código/ })).toBeVisible();
 });
 
 test('la mascota refleja el consumo', async ({ page }) => {
@@ -71,8 +71,8 @@ test('navega por todas las secciones', async ({ page }) => {
   await nav.getByRole('button', { name: /Historial de uso/ }).click();
   await expect(page.getByRole('heading', { name: 'Historial de uso', exact: true })).toBeVisible();
 
-  await nav.getByRole('button', { name: /Claude Code/ }).click();
-  await expect(page.getByRole('heading', { name: 'Claude Code', exact: true })).toBeVisible();
+  await nav.getByRole('button', { name: /Agentes de código/ }).click();
+  await expect(page.getByRole('heading', { name: 'Agentes de código', exact: true })).toBeVisible();
 
   await nav.getByRole('button', { name: /Ajustes/ }).click();
   await expect(page.getByRole('heading', { name: 'Ajustes', exact: true })).toBeVisible();

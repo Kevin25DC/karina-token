@@ -155,6 +155,10 @@ export function SetClientBudget(client, usd) {
   return call('SetClientBudget', [client, usd]);
 }
 
+export function SetClientRate(client, usd) {
+  return call('SetClientRate', [client, usd]);
+}
+
 export function SetSubscriptionInterval(seconds) {
   return call('SetSubscriptionInterval', [seconds]);
 }

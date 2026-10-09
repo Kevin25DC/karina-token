@@ -6,6 +6,7 @@ import {
   Download,
   FileText,
   FolderTree,
+  HandCoins,
   Scale,
   Tag,
   Users,
@@ -18,6 +19,7 @@ import { cn } from '@/lib/hooks';
 import { formatHours, formatMoney, formatTokens } from '@/lib/format';
 import { Card } from '@/components/primitives';
 import type {
+  ClaudeCodeClientUsage,
   ClaudeCodeUsageSummary,
   ClientBudget,
   ClientReport,
@@ -56,7 +58,10 @@ export function PlanAdvisor({ monthly }: { monthly: ClaudeCodeUsageSummary | nul
     }
   }
 
-  const equivalent = monthly?.cost_usd ?? 0;
+  // El plan de Claude solo se compara con el uso de Claude Code, no con el de
+  // otros agentes (que tienen su propia suscripción o facturación).
+  const claude = monthly?.agents?.find((a) => a.agent === 'claude');
+  const equivalent = monthly?.agents ? (claude?.cost_usd ?? 0) : (monthly?.cost_usd ?? 0);
   const activeDays = monthly?.days?.length ?? 0;
   const ratio = price > 0 ? equivalent / price : 0;
   const worthIt = price > 0 && equivalent >= price;
@@ -241,19 +246,128 @@ export function ClientsCard({
                 />
               </div>
               {c.name && (
-                <BudgetRow
-                  client={c.name}
-                  budget={budgets.find((b) => b.name === c.name)}
-                />
+                <>
+                  <RateRow client={c} onChanged={onChanged} />
+                  <BudgetRow
+                    client={c.name}
+                    budget={budgets.find((b) => b.name === c.name)}
+                  />
+                </>
               )}
             </div>
           ))}
+          {summary.billable_usd > 0 && (
+            <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs text-zinc-400">
+              Rentabilidad del periodo (clientes con tarifa): facturable{' '}
+              <span className="font-mono text-zinc-100">{formatMoney(summary.billable_usd)}</span>{' '}
+              · margen tras el costo de IA{' '}
+              <span
+                className={cn(
+                  'font-mono',
+                  summary.margin_usd >= 0 ? 'text-emerald-300' : 'text-rose-300',
+                )}
+              >
+                {formatMoney(summary.margin_usd)}
+              </span>
+            </p>
+          )}
         </div>
       )}
 
       <ReportControls summary={summary} onChanged={onChanged} />
       <FolderRules summary={summary} onChanged={onChanged} />
     </Card>
+  );
+}
+
+/**
+ * Tarifa por hora de un cliente: con ella las horas se convierten en importe
+ * facturable y se ve el margen que deja el costo de IA.
+ */
+function RateRow({
+  client,
+  onChanged,
+}: {
+  client: ClaudeCodeClientUsage;
+  onChanged: () => void;
+}) {
+  const notify = useStore((s) => s.notify);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+
+  async function commit() {
+    setEditing(false);
+    const usd = value.trim() === '' ? 0 : Number(value.replace(',', '.'));
+    if (!Number.isFinite(usd) || usd < 0) {
+      notify('error', 'Escribe una tarifa válida en dólares');
+      return;
+    }
+    if (usd === client.hourly_rate_usd) return;
+    try {
+      await api.setClientRate(client.name, usd);
+      onChanged();
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-500">
+        <span>Tarifa por hora (USD):</span>
+        <input
+          autoFocus
+          value={value}
+          inputMode="decimal"
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          placeholder="vacío = sin tarifa"
+          aria-label={`Tarifa por hora de ${client.name}`}
+          className={cn(fieldClass, 'w-40 py-1')}
+        />
+      </div>
+    );
+  }
+
+  const open = () => {
+    setValue(client.hourly_rate_usd ? String(client.hourly_rate_usd) : '');
+    setEditing(true);
+  };
+
+  if (!client.hourly_rate_usd) {
+    return (
+      <button
+        onClick={open}
+        className="mr-4 mt-1.5 inline-flex items-center gap-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-300"
+      >
+        <HandCoins className="h-3 w-3" /> Poner tarifa por hora
+      </button>
+    );
+  }
+
+  const marginPct =
+    client.billable_usd > 0 ? Math.round((client.margin_usd / client.billable_usd) * 100) : 0;
+  return (
+    <button
+      onClick={open}
+      title="Cambiar tarifa por hora"
+      className="mt-2 flex w-full items-center justify-between gap-3 rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.04]"
+    >
+      <span className="inline-flex items-center gap-1 text-zinc-500">
+        <HandCoins className="h-3 w-3" /> Tarifa {formatMoney(client.hourly_rate_usd)}/h
+      </span>
+      <span className="font-mono text-zinc-400">
+        facturable <span className="text-zinc-200">{formatMoney(client.billable_usd)}</span> ·
+        margen{' '}
+        <span className={client.margin_usd >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+          {formatMoney(client.margin_usd)} ({marginPct}%)
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -501,7 +615,7 @@ function ReportControls({
 
       <p className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
         <Clock className="h-3 w-3" />
-        Las horas cuentan el tiempo entre respuestas de Claude Code; una pausa mayor de
+        Las horas cuentan el tiempo entre respuestas de tus agentes de código; una pausa mayor de
         <select
           value={idleGap}
           onChange={(e) => void changeGap(Number(e.target.value))}
@@ -541,8 +655,11 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
     cost: list.reduce((n, p) => n + p.cost_usd, 0),
     tokens: list.reduce((n, p) => n + totalOf(p.tokens), 0),
     sessions: list.reduce((n, p) => n + p.sessions, 0),
+    billable: list.reduce((n, p) => n + p.billable_usd, 0),
   });
   const total = sum(projects);
+  const rateOf = (name: string) =>
+    (s.clients ?? []).find((c) => c.name === name)?.hourly_rate_usd ?? 0;
   const cell = 'border-b border-zinc-200 px-2 py-1.5';
 
   return (
@@ -573,9 +690,11 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
       <div className="mt-6 grid grid-cols-4 gap-4">
         {[
           ['Horas trabajadas', formatHours(total.seconds)],
+          total.billable > 0
+            ? ['Importe por horas', formatMoney(total.billable)]
+            : ['Sesiones', String(total.sessions)],
           ['Costo de IA (estimado)', formatMoney(total.cost)],
           ['Proyectos', String(projects.length)],
-          ['Sesiones', String(total.sessions)],
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-zinc-300 p-3">
             <p className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</p>
@@ -590,14 +709,20 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
         return (
           <div key={name} className="mt-8" style={{ breakInside: 'avoid' }}>
             {client === '' && <h2 className="text-base font-semibold">{name}</h2>}
+            {sub.billable > 0 && (
+              <p className="mt-0.5 text-xs text-zinc-600">
+                Tarifa: {formatMoney(rateOf(name))} por hora
+              </p>
+            )}
             <table className="mt-2 w-full table-fixed border-collapse text-left text-xs">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-zinc-500">
-                  <th className={cn(cell, 'w-[40%]')}>Proyecto</th>
+                  <th className={cn(cell, 'w-[34%]')}>Proyecto</th>
                   <th className={cn(cell, 'text-right')}>Sesiones</th>
                   <th className={cn(cell, 'text-right')}>Horas</th>
+                  {sub.billable > 0 && <th className={cn(cell, 'text-right')}>Importe horas</th>}
                   <th className={cn(cell, 'text-right')}>Tokens</th>
-                  <th className={cn(cell, 'text-right')}>Costo est.</th>
+                  <th className={cn(cell, 'text-right')}>Costo IA est.</th>
                 </tr>
               </thead>
               <tbody>
@@ -606,6 +731,9 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
                     <td className={cell}>{p.label}</td>
                     <td className={cn(cell, 'text-right')}>{p.sessions}</td>
                     <td className={cn(cell, 'text-right')}>{formatHours(p.active_seconds)}</td>
+                    {sub.billable > 0 && (
+                      <td className={cn(cell, 'text-right')}>{formatMoney(p.billable_usd)}</td>
+                    )}
                     <td className={cn(cell, 'text-right')}>{formatTokens(totalOf(p.tokens))}</td>
                     <td className={cn(cell, 'text-right')}>{formatMoney(p.cost_usd)}</td>
                   </tr>
@@ -614,6 +742,9 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
                   <td className={cell}>Total{client === '' ? ` ${name}` : ''}</td>
                   <td className={cn(cell, 'text-right')}>{sub.sessions}</td>
                   <td className={cn(cell, 'text-right')}>{formatHours(sub.seconds)}</td>
+                  {sub.billable > 0 && (
+                    <td className={cn(cell, 'text-right')}>{formatMoney(sub.billable)}</td>
+                  )}
                   <td className={cn(cell, 'text-right')}>{formatTokens(sub.tokens)}</td>
                   <td className={cn(cell, 'text-right')}>{formatMoney(sub.cost)}</td>
                 </tr>
@@ -624,7 +755,8 @@ function PrintableReport({ report, client }: { report: ClientReport; client: str
       })}
 
       <p className="mt-8 text-[10px] leading-relaxed text-zinc-500">
-        Las horas se calculan a partir de la actividad registrada por Claude Code en el equipo:
+        Las horas se calculan a partir de la actividad registrada por los agentes de código en el
+        equipo (Claude Code, Codex CLI, Gemini CLI):
         cuentan el tiempo entre respuestas consecutivas con pausas de hasta{' '}
         {s.idle_gap_minutes} minutos. El costo es una estimación a precios de lista de la API de
         Anthropic al {s.prices_as_of} y no constituye una factura. Generado con Karina.

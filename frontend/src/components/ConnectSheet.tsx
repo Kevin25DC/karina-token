@@ -24,6 +24,22 @@ const KEY_HINTS: Record<string, { prefix: string; tip: string }> = {
     prefix: 'sk-…',
     tip: 'Crea una clave en platform.deepseek.com. DeepSeek solo expone tu saldo monetario prepagado vía API, no el consumo de tokens.',
   },
+  openrouter: {
+    prefix: 'sk-or-v1-…',
+    tip: 'Crea una clave en openrouter.ai/settings/keys. Karina muestra lo gastado y, si la clave tiene límite, el crédito que le queda. El saldo total de la cuenta solo se puede leer con una clave de gestión (Management key).',
+  },
+  xai: {
+    prefix: 'xai-…',
+    tip: 'Crea una clave en console.x.ai. xAI no expone el consumo ni el saldo para una clave normal; Karina solo comprueba que la clave está activa.',
+  },
+  mistral: {
+    prefix: 'clave de La Plateforme',
+    tip: 'Crea una clave en console.mistral.ai/api-keys. Mistral no expone el consumo por API; Karina solo comprueba que la clave funciona.',
+  },
+  groq: {
+    prefix: 'gsk_…',
+    tip: 'Crea una clave en console.groq.com/keys. Groq no tiene endpoint de consumo ni de facturación; Karina solo comprueba que la clave funciona.',
+  },
   demo: {
     prefix: 'no requiere clave',
     tip: 'El modo demo genera uso simulado para que explores Karina antes de conectar un proveedor real.',

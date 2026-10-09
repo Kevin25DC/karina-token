@@ -83,6 +83,10 @@ docs/                   Estudio de la suscripción + estado del proyecto
 | OpenAI | `GET /v1/models` | Solo Admin key: `/v1/organization/usage/completions` | headers `x-ratelimit-*` | No |
 | Gemini | `GET /v1beta/models` | **No** por API | No legible | No |
 | DeepSeek | `GET /models` | **No** | No documentado | `GET /user/balance` |
+| OpenRouter | `GET /api/v1/key` | **No** (cuenta en dólares) | No | Gasto y límite de la clave; saldo de cuenta solo con Management key (`/credits`) |
+| xAI | `GET /v1/api-key` (400 = clave inválida) | **No** | No | No |
+| Mistral | `GET /v1/models` | **No** | Solo en inferencia | No |
+| Groq | `GET /openai/v1/models` | **No** | Solo en inferencia | No |
 | Claude Suscripción | OAuth Claude Code | **Experimental** (5h + semanal) | — | — |
 | Demo | — | Simulado (solo preview) | — | — |
 
@@ -173,6 +177,29 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
 - **Ritmo de Claude Suscripción**: `config.SubscriptionIntervalSeconds`
   (300 por defecto, mínimo 120), independiente del intervalo general. Medido
   el 2026-10-08: ~20 lecturas en 5 minutos disparan un 429. No bajarlo.
+
+## Otros agentes de código y proveedores nuevos (v0.9.0)
+
+- La sección se llama **«Agentes de código»** (antes «Claude Code»). Los
+  métodos y tipos conservan el nombre `ClaudeCode*` por compatibilidad.
+- `internal/transcripts/agents.go`: lectores de **Codex CLI**
+  (`$CODEX_HOME/sessions` y `archived_sessions`, uso acumulado en eventos
+  `token_count`; `input_tokens` incluye los cacheados) y **Gemini CLI**
+  (`~/.gemini/tmp/<proyecto>/chats/`, ruta real en `.project_root`). Hechos
+  desde el código fuente de cada herramienta: **sin validar con sesiones
+  reales**; sus tests usan ejemplos construidos.
+- `internal/transcripts/opencode.go`: **OpenCode** guarda en SQLite
+  (`~/.local/share/opencode/opencode.db`, tabla `message`). Se abre en solo
+  lectura con `modernc.org/sqlite` (Go puro, sin cgo) y nunca se lee la tabla
+  `part` (contenido). Verificado contra una base real de opencode 1.18. Usa
+  el `cost` que calcula OpenCode; si es 0, cae a `internal/pricing`.
+- `internal/pricing` solo tiene modelos de Claude: el resto sale «sin
+  precio». Pendiente añadir OpenAI y Google.
+- Proveedores: `internal/providers/openrouter` (dinero, no tokens) y
+  `internal/providers/keyonly` (xAI, Mistral, Groq: solo validan la clave).
+- Rentabilidad: `config.ClientRates` (USD/hora) y `Summary.ApplyRates`.
+- ⚠️ **Tests en local**: en el equipo de la empresa el EDR marca los binarios
+  de `go test` como ransomware. Verificar con el CI de GitHub, no en local.
 
 ## Widget «isla» y mascota Kari (v0.7.0)
 

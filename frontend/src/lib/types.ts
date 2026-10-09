@@ -116,11 +116,23 @@ export interface ClaudeCodeProjectUsage {
   cost_usd: number;
   /** Tiempo de trabajo estimado en el proyecto, en segundos. */
   active_seconds: number;
+  /** Horas activas a la tarifa del cliente (0 si no tiene tarifa). */
+  billable_usd: number;
   /** Cliente o etiqueta asignado por el usuario ('' si no tiene). */
   client: string;
   /** true si el cliente viene de una regla por carpeta y no del proyecto. */
   client_inherited: boolean;
   models: ClaudeCodeModelUsage[] | null;
+}
+
+export interface CodingAgentUsage {
+  agent: 'claude' | 'codex' | 'gemini' | string;
+  name: string;
+  turns: number;
+  tokens: UsageTokens;
+  cost_usd: number;
+  /** Tokens de modelos sin precio conocido (no entran en cost_usd). */
+  unpriced_tokens: number;
 }
 
 /** Regla que asigna a un cliente todos los proyectos bajo una carpeta. */
@@ -140,6 +152,12 @@ export interface ClaudeCodeClientUsage {
   cost_usd: number;
   /** Suma del tiempo activo de sus proyectos, en segundos. */
   active_seconds: number;
+  /** Tarifa por hora que cobras a este cliente, en USD (0 = sin definir). */
+  hourly_rate_usd: number;
+  /** Horas activas a esa tarifa. */
+  billable_usd: number;
+  /** Facturable menos el costo estimado de IA. */
+  margin_usd: number;
 }
 
 /** Periodo de un reporte por cliente. */
@@ -183,6 +201,8 @@ export interface ClaudeCodeUsageSummary {
   projects: ClaudeCodeProjectUsage[] | null;
   days: ClaudeCodeDayUsage[] | null;
   models: ClaudeCodeModelUsage[] | null;
+  /** Desglose por agente de código (Claude Code, Codex CLI, Gemini CLI). */
+  agents: CodingAgentUsage[] | null;
   total: UsageTokens;
   /** Costo estimado del total a precios de lista de la API. */
   cost_usd: number;
@@ -193,6 +213,9 @@ export interface ClaudeCodeUsageSummary {
   active_seconds: number;
   /** Pausa (min) a partir de la cual se considera que dejaste de trabajar. */
   idle_gap_minutes: number;
+  /** Facturable y margen sumados de los clientes con tarifa por hora. */
+  billable_usd: number;
+  margin_usd: number;
   clients: ClaudeCodeClientUsage[] | null;
   client_names: string[] | null;
   client_folders: ClaudeCodeFolderRule[] | null;

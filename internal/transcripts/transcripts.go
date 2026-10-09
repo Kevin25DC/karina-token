@@ -90,6 +90,9 @@ type ProjectUsage struct {
 	// ActiveSeconds is the estimated time worked on the project (see
 	// activeSeconds).
 	ActiveSeconds int64 `json:"active_seconds"`
+	// BillableUSD is ActiveSeconds at the client's hourly rate (0 when the
+	// client has none). Filled by ApplyRates.
+	BillableUSD float64 `json:"billable_usd"`
 	// Client is the client/label the user assigned to this project ("" when
 	// none). It is filled in by the caller, not read from the transcripts.
 	Client string `json:"client"`
@@ -110,6 +113,39 @@ type ClientUsage struct {
 	CostUSD  float64 `json:"cost_usd"`
 	// ActiveSeconds is the sum of the active time of its projects.
 	ActiveSeconds int64 `json:"active_seconds"`
+	// HourlyRateUSD is what the user charges this client per hour (0 = not
+	// set). BillableUSD is ActiveSeconds at that rate and MarginUSD what is
+	// left after the estimated AI cost. All three are filled by ApplyRates.
+	HourlyRateUSD float64 `json:"hourly_rate_usd"`
+	BillableUSD   float64 `json:"billable_usd"`
+	MarginUSD     float64 `json:"margin_usd"`
+}
+
+// ApplyRates turns hours into money: for every client with an hourly rate it
+// computes what the worked time is worth and the margin left after the AI
+// cost. Call it after AssignClients.
+func (s *Summary) ApplyRates(rates map[string]float64) {
+	s.BillableUSD, s.MarginUSD = 0, 0
+	for i := range s.Projects {
+		p := &s.Projects[i]
+		p.BillableUSD = 0
+		if rate := rates[p.Client]; p.Client != "" && rate > 0 {
+			p.BillableUSD = float64(p.ActiveSeconds) / 3600 * rate
+		}
+	}
+	for i := range s.Clients {
+		c := &s.Clients[i]
+		c.HourlyRateUSD, c.BillableUSD, c.MarginUSD = 0, 0, 0
+		rate := rates[c.Name]
+		if c.Name == "" || rate <= 0 {
+			continue
+		}
+		c.HourlyRateUSD = rate
+		c.BillableUSD = float64(c.ActiveSeconds) / 3600 * rate
+		c.MarginUSD = c.BillableUSD - c.CostUSD
+		s.BillableUSD += c.BillableUSD
+		s.MarginUSD += c.MarginUSD
+	}
 }
 
 // ModelUsage is the aggregate for one model id exactly as Claude Code
@@ -142,6 +178,7 @@ type Summary struct {
 	Projects  []ProjectUsage `json:"projects"` // sorted by Tokens.Total desc
 	Days      []DayUsage     `json:"days"`     // sorted by date asc
 	Models    []ModelUsage   `json:"models"`   // sorted by Tokens.Total desc
+	Agents    []AgentUsage   `json:"agents"`   // sorted by Tokens.Total desc
 	Total     Tokens         `json:"total"`
 	// CostUSD is the estimated cost of Total at API list prices (as of
 	// PricesAsOf). UnpricedTokens counts the tokens of models Karina has no
@@ -154,6 +191,10 @@ type Summary struct {
 	// ends a stretch of work.
 	ActiveSeconds  int64 `json:"active_seconds"`
 	IdleGapMinutes int   `json:"idle_gap_minutes"`
+	// BillableUSD and MarginUSD add up the clients that have an hourly rate
+	// (see ApplyRates).
+	BillableUSD float64 `json:"billable_usd"`
+	MarginUSD   float64 `json:"margin_usd"`
 	// Clients and ClientNames are filled in by AssignClients.
 	Clients     []ClientUsage `json:"clients"`      // sorted by CostUSD desc
 	ClientNames []string      `json:"client_names"` // every known client, sorted
@@ -269,21 +310,31 @@ func DefaultRoot() (string, error) {
 	return filepath.Join(home, ".claude", "projects"), nil
 }
 
-// Detected reports whether Claude Code has been used on this machine: root
-// exists and holds at least one transcript. It stops at the first match, so
-// it is cheap enough to call on startup.
-func Detected(root string) bool {
+// Detected reports whether a coding agent has been used on this machine:
+// one of the log directories holds at least one session file. It stops at
+// the first match, so it is cheap enough to call on startup.
+func Detected(root string, r Range) bool {
+	if fileExists(r.OpenCodeDB) {
+		return true
+	}
+	sources, _ := existingSources(root, r)
 	found := false
-	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil {
+	for _, src := range sources {
+		src := src
+		_ = filepath.WalkDir(src.root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !d.IsDir() && src.match(path) {
+				found = true
+				return filepath.SkipAll
+			}
 			return nil
+		})
+		if found {
+			break
 		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".jsonl") {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
+	}
 	return found
 }
 
@@ -305,23 +356,28 @@ type Range struct {
 	// IdleGap is the longest pause between two responses that still counts
 	// as working time (zero = DefaultIdleGap).
 	IdleGap time.Duration
+	// CodexRoot and GeminiRoot add the local logs of those coding agents to
+	// the scan (see agents.go). Empty means that agent is not read.
+	CodexRoot  string
+	GeminiRoot string
+	// OpenCodeDB adds OpenCode's SQLite database (see opencode.go).
+	OpenCodeDB string
 }
 
-// ScanRange is Scan for an arbitrary time range.
+// ScanRange is Scan for an arbitrary time range. root is Claude Code's
+// projects directory; r may add other agents' log directories.
 func ScanRange(root string, r Range) (Summary, error) {
 	since := r.Since
 	idleGap := r.IdleGap
 	if idleGap <= 0 {
 		idleGap = DefaultIdleGap
 	}
-	info, err := os.Stat(root)
+	sources, err := existingSources(root, r)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Summary{Available: false}, nil
-		}
 		return Summary{}, err
 	}
-	if !info.IsDir() {
+	hasOpenCode := fileExists(r.OpenCodeDB)
+	if len(sources) == 0 && !hasOpenCode {
 		return Summary{Available: false}, nil
 	}
 
@@ -332,34 +388,42 @@ func ScanRange(root string, r Range) (Summary, error) {
 		models:        map[string]*ModelUsage{},
 		projectModels: map[string]map[string]*ModelUsage{},
 		projectTimes:  map[string][]int64{},
+		agents:        map[string]*AgentUsage{},
 	}
 
 	// A file last written before `since` cannot hold a turn inside the span,
 	// so it is not even opened. That is what keeps "Hoy" fast on machines
 	// with months of history.
-	var paths []string
+	type job struct {
+		path  string
+		parse func(string) []turn
+	}
+	var jobs []job
 	seen := map[string]struct{}{}
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// Skip unreadable entries rather than failing the whole scan.
+	for _, src := range sources {
+		src := src
+		walkErr := filepath.WalkDir(src.root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				// Skip unreadable entries rather than failing the whole scan.
+				return nil
+			}
+			if d.IsDir() || !src.match(path) {
+				return nil
+			}
+			seen[path] = struct{}{}
+			if fi, err := d.Info(); err == nil && !fi.ModTime().Before(since) {
+				jobs = append(jobs, job{path, src.parse})
+			}
 			return nil
+		})
+		if walkErr != nil {
+			return Summary{}, walkErr
 		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
-			return nil
-		}
-		seen[path] = struct{}{}
-		if fi, err := d.Info(); err == nil && !fi.ModTime().Before(since) {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if walkErr != nil {
-		return Summary{}, walkErr
 	}
 	cache.prune(seen)
 
 	// Parse files in parallel; unchanged files come straight from the cache.
-	perFile := make([][]turn, len(paths))
+	perFile := make([][]turn, len(jobs))
 	workers := runtime.NumCPU()
 	if workers > 8 {
 		workers = 8
@@ -371,15 +435,18 @@ func ScanRange(root string, r Range) (Summary, error) {
 		go func() {
 			defer wg.Done()
 			for i := range next {
-				perFile[i] = cache.turns(paths[i])
+				perFile[i] = cache.turns(jobs[i].path, jobs[i].parse)
 			}
 		}()
 	}
-	for i := range paths {
+	for i := range jobs {
 		next <- i
 	}
 	close(next)
 	wg.Wait()
+	if hasOpenCode {
+		perFile = append(perFile, readOpenCode(r.OpenCodeDB, since))
+	}
 
 	// The same response can also sit in more than one file (resumed or
 	// forked sessions copy their history), so it is counted once overall.
@@ -404,6 +471,7 @@ func ScanRange(root string, r Range) (Summary, error) {
 		Available:      true,
 		Total:          a.total,
 		Models:         sortedModels(a.models),
+		Agents:         sortedAgents(a.agents),
 		CostUSD:        a.cost,
 		UnpricedTokens: a.unpriced,
 		PricesAsOf:     pricing.AsOf,
@@ -458,6 +526,8 @@ type turn struct {
 	// when there is no price for the model.
 	cost   float64
 	priced bool
+	// agent is the coding agent that produced the turn (AgentClaude, ...).
+	agent string
 }
 
 // fileCache remembers the parsed turns of each transcript, keyed by path and
@@ -476,7 +546,7 @@ type cachedFile struct {
 
 var cache = &fileCache{files: map[string]cachedFile{}}
 
-func (c *fileCache) turns(path string) []turn {
+func (c *fileCache) turns(path string, parse func(string) []turn) []turn {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil
@@ -487,7 +557,7 @@ func (c *fileCache) turns(path string) []turn {
 	if ok && hit.size == fi.Size() && hit.mod.Equal(fi.ModTime()) {
 		return hit.turns
 	}
-	turns := parseFile(path)
+	turns := parse(path)
 	c.mu.Lock()
 	c.files[path] = cachedFile{size: fi.Size(), mod: fi.ModTime(), turns: turns}
 	c.mu.Unlock()
@@ -510,12 +580,12 @@ var (
 	usageMark     = []byte(`"usage"`)
 )
 
-// parseFile reads one transcript file line by line and returns its assistant
-// turns. Errors reading an individual file are swallowed (best-effort, like
-// a corrupt or concurrently-rotated log line shouldn't fail the whole
-// report) — the JSONL is written by Claude Code itself while sessions are
-// live, so a torn last line is expected.
-func parseFile(path string) []turn {
+// parseClaude reads one Claude Code transcript line by line and returns its
+// assistant turns. Errors reading an individual file are swallowed
+// (best-effort, like a corrupt or concurrently-rotated log line shouldn't
+// fail the whole report) — the JSONL is written by Claude Code itself while
+// sessions are live, so a torn last line is expected.
+func parseClaude(path string) []turn {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
@@ -560,6 +630,7 @@ func parseFile(path string) []turn {
 		}
 		u := rec.Message.Usage
 		t := turn{
+			agent:   AgentClaude,
 			at:      ts,
 			cwd:     intern(rec.CWD),
 			session: intern(rec.SessionID),
@@ -621,7 +692,20 @@ func (a *aggregates) add(t *turn) {
 	p.CostUSD += t.cost
 	a.projectTimes[projectPath] = append(a.projectTimes[projectPath], t.at.Unix())
 	if t.session != "" {
-		a.sessions[projectPath][t.session] = struct{}{}
+		// Session ids are only unique within one agent.
+		a.sessions[projectPath][t.agent+"|"+t.session] = struct{}{}
+	}
+
+	ag, ok := a.agents[t.agent]
+	if !ok {
+		ag = &AgentUsage{Agent: t.agent, Name: agentName(t.agent)}
+		a.agents[t.agent] = ag
+	}
+	ag.Turns++
+	ag.Tokens.add(tk)
+	ag.CostUSD += t.cost
+	if !t.priced {
+		ag.UnpricedTokens += tk.Total()
 	}
 
 	dayKey := t.at.Local().Format("2006-01-02")
@@ -655,6 +739,7 @@ type aggregates struct {
 	models        map[string]*ModelUsage
 	projectModels map[string]map[string]*ModelUsage // project path -> model -> usage
 	projectTimes  map[string][]int64                // project path -> response times (unix s)
+	agents        map[string]*AgentUsage            // agent id -> usage
 	total         Tokens
 	cost          float64
 	unpriced      int64 // tokens of models without a known price

@@ -29,7 +29,6 @@ import (
 	"karina/internal/providers/api"
 	"karina/internal/scheduler"
 	"karina/internal/storage"
-	"karina/internal/transcripts"
 	"karina/internal/webhook"
 )
 
@@ -75,8 +74,12 @@ type Options struct {
 	Notify func(title, message string) error
 	// SkipManualAuto disables the automatic read of manual providers (tests).
 	SkipManualAuto bool
-	// TranscriptsDir overrides ~/.claude/projects (tests).
+	// TranscriptsDir overrides ~/.claude/projects (tests). With it set, the
+	// other agents are read only from CodexDir / GeminiDir.
 	TranscriptsDir string
+	CodexDir       string
+	GeminiDir      string
+	OpenCodeDB     string
 }
 
 // manualReading is a user-entered usage reading for a manual provider
@@ -1361,16 +1364,6 @@ type HistoryResult struct {
 	HasUsage   bool                  `json:"has_usage"`
 	HasBilling bool                  `json:"has_billing"`
 	Points     []domain.HistoryPoint `json:"points"`
-}
-
-// ClaudeCodeDetected reports whether Claude Code has left transcripts on this
-// machine. The UI uses it to decide whether to offer the Claude Code section.
-func (s *Service) ClaudeCodeDetected() bool {
-	root, err := s.transcriptsRoot()
-	if err != nil {
-		return false
-	}
-	return transcripts.Detected(root)
 }
 
 // History returns downsampled local observations for a provider and span.

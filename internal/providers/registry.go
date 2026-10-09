@@ -11,8 +11,10 @@ import (
 	"karina/internal/providers/api"
 	"karina/internal/providers/deepseek"
 	"karina/internal/providers/gemini"
+	"karina/internal/providers/keyonly"
 	"karina/internal/providers/mock"
 	"karina/internal/providers/openai"
+	"karina/internal/providers/openrouter"
 )
 
 var catalog = []domain.ProviderMeta{
@@ -55,6 +57,38 @@ var catalog = []domain.ProviderMeta{
 		Capabilities: []domain.Capability{domain.CapBilling}, // /user/balance
 	},
 	{
+		ID:           "openrouter",
+		Name:         "OpenRouter",
+		Description:  "Un solo acceso a modelos de muchos proveedores",
+		DocsURL:      "https://openrouter.ai/docs",
+		Brand:        "violet",
+		Capabilities: []domain.Capability{domain.CapBilling}, // /key, /credits
+	},
+	{
+		ID:           "xai",
+		Name:         "xAI (Grok)",
+		Description:  "Modelos Grok de xAI",
+		DocsURL:      "https://docs.x.ai",
+		Brand:        "zinc",
+		Capabilities: []domain.Capability{},
+	},
+	{
+		ID:           "mistral",
+		Name:         "Mistral AI",
+		Description:  "Modelos de Mistral (La Plateforme)",
+		DocsURL:      "https://docs.mistral.ai",
+		Brand:        "amber",
+		Capabilities: []domain.Capability{},
+	},
+	{
+		ID:           "groq",
+		Name:         "Groq",
+		Description:  "Inferencia rápida de modelos abiertos",
+		DocsURL:      "https://console.groq.com/docs",
+		Brand:        "emerald",
+		Capabilities: []domain.Capability{},
+	},
+	{
 		ID:           "demo",
 		Name:         "Proveedor demo",
 		Description:  "Uso simulado para previsualizar Karina",
@@ -74,7 +108,11 @@ var catalog = []domain.ProviderMeta{
 	},
 }
 
-var order = []domain.ProviderID{"anthropic", "openai", "gemini", "deepseek", "demo", "claude_subscription"}
+var order = []domain.ProviderID{
+	"anthropic", "openai", "gemini", "deepseek",
+	"openrouter", "xai", "mistral", "groq",
+	"demo", "claude_subscription",
+}
 
 // Catalog returns the ordered, immutable provider catalog.
 func Catalog() []domain.ProviderMeta {
@@ -124,6 +162,14 @@ func New(id domain.ProviderID) (api.Provider, error) {
 		return gemini.New(), nil
 	case "deepseek":
 		return deepseek.New(), nil
+	case "openrouter":
+		return openrouter.New(), nil
+	case "xai":
+		return keyonly.NewXAI(), nil
+	case "mistral":
+		return keyonly.NewMistral(), nil
+	case "groq":
+		return keyonly.NewGroq(), nil
 	case "demo":
 		return mock.New(100_000), nil
 	default:

@@ -135,6 +135,24 @@ func TestClientsAndReport(t *testing.T) {
 		t.Fatalf("rule not removed: %+v", summary.ClientFolders)
 	}
 
+	// Hourly rate: the worked time is valued and compared with the AI cost.
+	if err := s.SetClientRate("Acme", 50); err != nil {
+		t.Fatal(err)
+	}
+	summary, _ = s.ClaudeCodeUsage(domain.Span7d)
+	for _, c := range summary.Clients {
+		if c.Name != "Acme" {
+			continue
+		}
+		wantBillable := float64(c.ActiveSeconds) / 3600 * 50
+		if c.HourlyRateUSD != 50 || c.BillableUSD != wantBillable || c.MarginUSD != wantBillable-c.CostUSD {
+			t.Fatalf("acme rate = %+v", c)
+		}
+	}
+	if summary.MarginUSD != summary.BillableUSD-2 {
+		t.Fatalf("margin = %v billable = %v", summary.MarginUSD, summary.BillableUSD)
+	}
+
 	// The subscription has its own pace: 5 min by default, never under 2.
 	if got := s.Config().SubscriptionIntervalSeconds; got != 300 {
 		t.Fatalf("default subscription interval = %d", got)

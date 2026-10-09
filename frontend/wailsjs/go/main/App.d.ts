@@ -62,5 +62,6 @@ export function ClientBudgets(): Promise<ClientBudget[]>;
 export function SetClientBudget(client: string, usd: number): Promise<void>;
 export function SetIdleGapMinutes(minutes: number): Promise<void>;
 export function SetSubscriptionInterval(seconds: number): Promise<void>;
+export function SetClientRate(client: string, usd: number): Promise<void>;
 export function SetReportBusinessName(name: string): Promise<void>;
 export function ClaudeCodeUsage(span: HistorySpan): Promise<ClaudeCodeUsageSummary>;

@@ -60,6 +60,8 @@ export function WidgetMode() {
 
   const enabled = meta.filter((m) => m.enabled);
   const pct = status.percent >= 0 ? Math.round(status.percent) : null;
+  const now = useNow();
+  const clock = new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   return (
     <div
@@ -96,6 +98,9 @@ export function WidgetMode() {
                       : 'bg-emerald-400',
             )}
           />
+          {/* Hora del sistema, con el formato (12/24 h) de Windows */}
+          <span className="h-3.5 w-px bg-white/[0.12]" />
+          <span className="font-mono text-[13px] tabular-nums text-zinc-300">{clock}</span>
         </div>
       ) : (
         <>

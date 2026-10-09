@@ -24,7 +24,7 @@ import (
 const (
 	// The widget is an "island" hanging from the top-centre of the screen: a
 	// small pill that expands into a panel while the pointer is over it.
-	islandPillW  = 240
+	islandPillW  = 310 // mascot + percentage + status dot + system clock
 	islandPillH  = 46
 	islandWidth  = 500
 	islandHeader = 64 // toolbar + padding
@@ -556,6 +556,12 @@ func (a *App) SetClientBudget(client string, usd float64) error {
 // read (seconds). It is separate from, and slower than, the general interval.
 func (a *App) SetSubscriptionInterval(seconds int) error {
 	return a.svc.SetSubscriptionInterval(seconds)
+}
+
+// SetClientRate sets what the user charges a client per hour in USD (0
+// removes it).
+func (a *App) SetClientRate(client string, usd float64) error {
+	return a.svc.SetClientRate(client, usd)
 }
 
 // SetIdleGapMinutes sets the pause that ends a stretch of work when

@@ -2,8 +2,12 @@ import {
   Aperture,
   FlaskConical,
   Gem,
+  Orbit,
+  Route,
   Sparkles,
   Waves,
+  Wind,
+  Zap,
 } from 'lucide-react';
 import type { ProviderID } from '@/lib/types';
 import { brandTheme } from '@/lib/theme';
@@ -14,6 +18,10 @@ const ICONS: Record<string, typeof Sparkles> = {
   openai: Aperture,
   gemini: Gem,
   deepseek: Waves,
+  openrouter: Route,
+  xai: Orbit,
+  mistral: Wind,
+  groq: Zap,
   demo: FlaskConical,
 };
 
