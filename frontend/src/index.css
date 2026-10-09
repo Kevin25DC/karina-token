@@ -109,6 +109,39 @@ button {
   -webkit-user-drag: none;
 }
 
+/* Contorno animado del widget: un degradado cónico que gira. Los tres colores
+   llegan por variables CSS desde WidgetMode (marca, aviso o límite). */
+@property --island-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.island-ring {
+  background: conic-gradient(
+    from var(--island-angle),
+    var(--ring-a, #a78bfa),
+    var(--ring-b, #7dd3fc),
+    var(--ring-c, #f0abfc),
+    var(--ring-a, #a78bfa)
+  );
+  animation: island-spin 5s linear infinite;
+}
+/* Sin datos ni proveedores: contorno quieto y apagado. */
+.island-ring-idle {
+  animation: none;
+  background: rgb(255 255 255 / 0.1);
+}
+@keyframes island-spin {
+  to {
+    --island-angle: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .island-ring {
+    animation: none;
+  }
+}
+
 /* Printing (Exportar PDF): the app shell is a fixed, absolutely-positioned
    frame (see .surface-frame) meant for the on-screen frameless window, which
    would clip a print job to one viewport-sized page. The printable report is

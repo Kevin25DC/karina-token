@@ -3,7 +3,7 @@ import { ArrowUpToLine, Expand, GripHorizontal, Minus, RefreshCw } from 'lucide-
 import { api, onWidgetDocked } from '@/lib/api';
 import { useStore } from '@/store';
 import { WindowHide } from '../../wailsjs/runtime/runtime';
-import { Mascot, moodTextClass, useMascotStatus } from '@/components/Mascot';
+import { Mascot, moodTextClass, useMascotStatus, type MascotMood } from '@/components/Mascot';
 import { ProviderMark } from '@/components/ProviderMark';
 import { UsageBar } from '@/components/UsageBar';
 import { Spinner } from '@/components/primitives';
@@ -67,11 +67,21 @@ export function WidgetMode() {
     <div
       onMouseEnter={expand}
       onMouseLeave={collapseSoon}
+      style={ringStyle(status.mood)}
       className={cn(
-        'absolute inset-0 flex flex-col overflow-hidden border-white/[0.08] bg-black',
-        docked ? 'rounded-b-[22px] border-x border-b' : 'rounded-[22px] border',
+        // El contorno es un degradado que gira con los colores de la app:
+        // indica que Karina está viva y cambia de tono según el estado.
+        'island-ring absolute inset-0',
+        status.mood === 'sleeping' && 'island-ring-idle',
+        docked ? 'rounded-b-[22px] px-[2px] pb-[2px]' : 'rounded-[22px] p-[2px]',
       )}
     >
+      <div
+        className={cn(
+          'flex h-full flex-col overflow-hidden bg-black',
+          docked ? 'rounded-b-[20px]' : 'rounded-[20px]',
+        )}
+      >
       {!open ? (
         // Pastilla plegada
         <div className="titlebar flex h-full items-center justify-center gap-2.5 px-4">
@@ -167,8 +177,20 @@ export function WidgetMode() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
+}
+
+/** Colores del contorno según el ánimo: los de la app, o aviso si hay límite cerca. */
+function ringStyle(mood: MascotMood): React.CSSProperties {
+  const [a, b, c] =
+    mood === 'exhausted'
+      ? ['#fb7185', '#f43f5e', '#fda4af']
+      : mood === 'worried' || mood === 'confused'
+        ? ['#fbbf24', '#f59e0b', '#fde68a']
+        : ['#a78bfa', '#7dd3fc', '#f0abfc'];
+  return { '--ring-a': a, '--ring-b': b, '--ring-c': c } as React.CSSProperties;
 }
 
 function IslandButton({

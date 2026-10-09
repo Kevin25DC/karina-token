@@ -31,6 +31,7 @@ const (
 	islandRow    = 82
 	islandMinH   = 214
 	islandMaxH   = 560
+	islandRadius = 23 // corner radius of the window cut-out (UI draws 22)
 	normalWidth  = 1180
 	normalHeight = 780
 )
@@ -155,6 +156,9 @@ func (a *App) EnterWidgetMode() error {
 	runtime.WindowSetMinSize(a.ctx, 160, 40)
 	a.widgetMode = true
 	a.placeIsland(false)
+	// The widget floats on the desktop: it is not an "open application" in
+	// the taskbar. It is reached from the tray icon instead.
+	platform.SetTaskbarVisible(false)
 
 	runtime.EventsEmit(a.ctx, "mode:widget", true)
 	a.log.Info("widget mode enabled")
@@ -230,6 +234,10 @@ func (a *App) placeIsland(expanded bool) {
 	}
 	runtime.WindowSetPosition(a.ctx, x, y)
 	a.islandLastX, a.islandLastY = x, y
+	// Cut the window to the widget's rounded outline. The radius is a touch
+	// larger than the one the UI draws (22px) so the cut always falls on
+	// painted pixels and never on the window's backdrop.
+	platform.SetWindowShape(w, h, islandRadius, y == 0)
 	// Docked at the top edge the island keeps square top corners.
 	runtime.EventsEmit(a.ctx, "widget:docked", y == 0)
 }
@@ -302,6 +310,8 @@ func (a *App) ExitWidgetMode() error {
 	}
 	a.islandPlaced = false
 	a.widgetMode = false
+	platform.ClearWindowShape()
+	platform.SetTaskbarVisible(true)
 	runtime.WindowSetAlwaysOnTop(a.ctx, false)
 	runtime.WindowSetMinSize(a.ctx, 860, 600)
 	runtime.WindowSetSize(a.ctx, normalWidth, normalHeight)
