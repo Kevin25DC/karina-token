@@ -2,6 +2,37 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.9.0] - 2026-10-09 · Más proveedores, más agentes de código y rentabilidad por cliente
+
+Karina ya no mira solo a Claude Code: suma otros agentes de código y cuatro
+proveedores nuevos, y te dice cuánto margen te deja cada cliente.
+
+### Añadido
+- **Rentabilidad por cliente**: pon tu tarifa por hora a cada cliente y verás
+  lo facturable y el margen que queda tras el costo de IA. El reporte PDF
+  incluye la tarifa y el importe por horas (el margen no sale en el PDF).
+- **Proveedores nuevos**: OpenRouter (lo gastado y el crédito restante de la
+  clave), xAI (Grok), Mistral y Groq.
+- **Más agentes de código**: además de Claude Code, Karina lee los registros
+  locales de Codex CLI, Gemini CLI y OpenCode, y los suma en proyectos,
+  clientes, horas, presupuestos y reportes. Nueva tarjeta «Por agente».
+- **Hora del sistema en el widget**, junto al porcentaje.
+
+### Cambiado
+- La sección «Claude Code» pasa a llamarse **«Agentes de código»**.
+- El asesor de plan compara tu suscripción de Claude solo con el uso de
+  Claude Code, no con el de otros agentes.
+
+### Notas
+- xAI, Mistral y Groq no publican el consumo por API: Karina solo comprueba
+  que la clave funciona y lo dice en la tarjeta.
+- Los lectores de **Codex CLI y Gemini CLI son experimentales**: siguen el
+  formato definido en el código de cada herramienta, pero aún no se han
+  probado con sesiones reales. El de OpenCode se hizo sobre una instalación
+  real (opencode 1.18).
+- El costo de los modelos que no son de Claude sale «sin precio», salvo en
+  OpenCode, que trae su propio costo por mensaje.
+
 ## [0.8.0] - 2026-10-08 · Horas por cliente, reporte en PDF y presupuestos
 
 Karina ahora mide cuánto tiempo trabajas con Claude Code para cada cliente,
