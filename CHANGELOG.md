@@ -2,6 +2,36 @@
 
 Todas las versiones relevantes de Karina.
 
+## [0.10.0] - 2026-10-12 · Widget renovado: elige qué sigue la mascota
+
+El widget se ve y se comporta mejor, y ahora decides qué proveedor muestra
+la mascota.
+
+### Añadido
+- **Elegir qué muestra la mascota**: cada proveedor conectado tiene un check
+  «Mascota» en su tarjeta. El elegido es el que aparece en la pastilla del
+  widget y va primero, resaltado, al desplegarlo. Sin elegir ninguno, sigue
+  mostrando el porcentaje más alto.
+- **Saldo en dinero en la mascota**: con proveedores de saldo prepagado
+  (DeepSeek, OpenRouter) la pastilla muestra el importe en lugar de un
+  porcentaje, y Kari avisa cuando el saldo se acaba.
+- **Contorno animado** en el widget con los colores de Karina; pasa a ámbar
+  cerca de un límite y a rojo al llegar al 100 %.
+
+### Cambiado
+- Con más de dos proveedores, el widget desplegado **crece a lo ancho** (dos
+  por columna) en vez de alargarse hacia abajo.
+- En modo widget, Karina **ya no aparece en la barra de tareas** ni en
+  Alt+Tab; se vuelve a ella desde el icono de la bandeja.
+
+### Corregido
+- Las **esquinas grises** que asomaban alrededor del widget.
+
+### Notas
+- Los proveedores que no publican ni porcentaje ni saldo (xAI, Mistral, Groq,
+  Gemini) no se pueden elegir para la mascota.
+- Los cambios de barra de tareas y de esquinas son solo para Windows.
+
 ## [0.9.0] - 2026-10-09 · Más proveedores, más agentes de código y rentabilidad por cliente
 
 Karina ya no mira solo a Claude Code: suma otros agentes de código y cuatro
