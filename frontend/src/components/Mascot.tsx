@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { cn } from '@/lib/hooks';
+import { formatMoney } from '@/lib/format';
+import type { ProviderState } from '@/lib/types';
 
 /**
  * Kari, la mascota de Karina: un personaje propio (morado, con orejas y panza
@@ -21,8 +23,14 @@ export interface MascotStatus {
   mood: MascotMood;
   /** Frase corta que dice la mascota. */
   line: string;
-  /** Mayor porcentaje de uso entre los proveedores, o -1 si no hay dato. */
+  /** Porcentaje que muestra la mascota, o -1 si no hay (o muestra un saldo). */
   percent: number;
+  /** Cifra lista para pintar: «62%», un saldo como «$42.50», o '' sin dato. */
+  display: string;
+  /** Proveedor del que sale esa cifra ('' si no hay). */
+  providerId: string;
+  /** true si lo eligió el usuario; false si es el más alto (automático). */
+  pinned: boolean;
 }
 
 const HAPPY_BELOW = 20;
@@ -34,54 +42,127 @@ export function useMascotStatus(): MascotStatus {
   const updatingAll = useStore((s) => s.updatingAll);
   const threshold = useStore((s) => s.config?.alert_threshold_percent ?? 85);
   const budgets = useStore((s) => s.budgets);
+  const chosen = useStore((s) => s.config?.mascot_provider ?? '');
 
   return useMemo(() => {
-    let percent = -1;
-    let hottest = '';
+    // Mayor porcentaje de los proveedores dados (todos, o solo el elegido).
+    const hottestOf = (only: string) => {
+      let percent = -1;
+      let label = '';
+      let providerId = '';
+      for (const m of meta) {
+        if (!m.enabled || (only && m.id !== only)) continue;
+        const st = states[m.id];
+        if (!st) continue;
+        const candidates: Array<{ pct: number; label: string }> = [];
+        for (const w of st.windows ?? []) {
+          candidates.push({ pct: w.percent, label: `${m.name} · ${w.label}` });
+        }
+        if (!candidates.length) {
+          const p = providerPercent(st);
+          if (p >= 0) candidates.push({ pct: p, label: m.name });
+        }
+        for (const c of candidates) {
+          if (c.pct > percent) {
+            percent = c.pct;
+            label = c.label;
+            providerId = m.id;
+          }
+        }
+      }
+      return { percent, label, providerId };
+    };
+
     let failed = '';
     let any = false;
     for (const m of meta) {
       if (!m.enabled) continue;
       any = true;
-      const st = states[m.id];
-      if (!st) continue;
-      if (st.status === 'error' || st.status === 'rate_limited' || st.status === 'invalid_credentials') {
+      const s = states[m.id]?.status;
+      if (s === 'error' || s === 'rate_limited' || s === 'invalid_credentials') {
         failed = failed || m.name;
       }
-      const candidates: Array<{ pct: number; label: string }> = [];
-      for (const w of st.windows ?? []) {
-        candidates.push({ pct: w.percent, label: `${m.name} · ${w.label}` });
+    }
+
+    // Saldo en dinero de los proveedores dados (los que cobran por saldo
+    // prepagado no tienen porcentaje: se muestra el importe).
+    const balanceOf = (only: string) => {
+      for (const m of meta) {
+        if (!m.enabled || (only && m.id !== only)) continue;
+        const balance = states[m.id]?.balance;
+        if (balance) return { balance, name: m.name, providerId: m.id };
       }
-      if (!candidates.length && st.usage_available && st.limit_tokens > 0) {
-        candidates.push({ pct: (st.used_tokens / st.limit_tokens) * 100, label: m.name });
-      }
-      for (const c of candidates) {
-        if (c.pct > percent) {
-          percent = c.pct;
-          hottest = c.label;
-        }
+      return null;
+    };
+
+    // El proveedor elegido manda: su porcentaje si lo tiene, o su saldo. Si
+    // no tiene ninguno de los dos (o ya no está conectado) se vuelve al
+    // automático, que es el porcentaje más alto.
+    let pick = hottestOf(chosen);
+    let money: ReturnType<typeof balanceOf> = null;
+    let pinned = false;
+    if (chosen) {
+      if (pick.percent >= 0) {
+        pinned = true;
+      } else {
+        money = balanceOf(chosen);
+        if (money) pinned = true;
+        else pick = hottestOf('');
       }
     }
-    const pct = Math.round(percent);
+    // Automático sin ningún porcentaje: al menos el saldo de quien lo tenga.
+    if (!pinned && pick.percent < 0) money = balanceOf('');
 
-    if (!any) return { mood: 'sleeping', line: 'Conecta un proveedor y despierto', percent: -1 };
-    if (percent >= 100) return { mood: 'exhausted', line: `Límite alcanzado: ${hottest}`, percent };
-    if (percent >= threshold) return { mood: 'worried', line: `Ojo, ${pct}% en ${hottest}`, percent };
     // Presupuestos por cliente (vienen ordenados del más consumido al menos).
     const tight = budgets.find((b) => b.percent >= 80);
-    if (tight) {
-      const line =
-        tight.percent >= 100
-          ? `${tight.name} superó su presupuesto del mes`
-          : `${tight.name} va al ${Math.round(tight.percent)}% de su presupuesto`;
-      return { mood: 'worried', line, percent };
+    const budgetLine = tight
+      ? tight.percent >= 100
+        ? `${tight.name} superó su presupuesto del mes`
+        : `${tight.name} va al ${Math.round(tight.percent)}% de su presupuesto`
+      : '';
+
+    if (any && money) {
+      const amount = formatMoney(money.balance.total, money.balance.currency);
+      const base = { percent: -1, display: amount, providerId: money.providerId, pinned };
+      if (!money.balance.is_available || money.balance.total <= 0) {
+        return { mood: 'exhausted', line: `Sin saldo en ${money.name}`, ...base };
+      }
+      if (budgetLine) return { mood: 'worried', line: budgetLine, ...base };
+      if (updatingAll) return { mood: 'thinking', line: 'Consultando el consumo…', ...base };
+      if (failed) return { mood: 'confused', line: `No pude leer ${failed}`, ...base };
+      return { mood: 'idle', line: `Saldo en ${money.name}: ${amount}`, ...base };
     }
-    if (updatingAll) return { mood: 'thinking', line: 'Consultando el consumo…', percent };
-    if (failed) return { mood: 'confused', line: `No pude leer ${failed}`, percent };
-    if (percent < 0) return { mood: 'sleeping', line: 'Aún no hay datos de uso', percent };
-    if (percent < HAPPY_BELOW) return { mood: 'happy', line: `Vas sobrado: ${pct}%`, percent };
-    return { mood: 'idle', line: `Todo tranquilo: ${pct}%`, percent };
-  }, [meta, states, updatingAll, threshold, budgets]);
+
+    const { percent, label: hottest, providerId } = pick;
+    const pct = Math.round(percent);
+    const base = { percent, display: percent >= 0 ? `${pct}%` : '', providerId, pinned };
+
+    if (!any) {
+      return { mood: 'sleeping', line: 'Conecta un proveedor y despierto', ...base, percent: -1, display: '' };
+    }
+    if (percent >= 100) return { mood: 'exhausted', line: `Límite alcanzado: ${hottest}`, ...base };
+    if (percent >= threshold) return { mood: 'worried', line: `Ojo, ${pct}% en ${hottest}`, ...base };
+    if (budgetLine) return { mood: 'worried', line: budgetLine, ...base };
+    if (updatingAll) return { mood: 'thinking', line: 'Consultando el consumo…', ...base };
+    if (failed) return { mood: 'confused', line: `No pude leer ${failed}`, ...base };
+    if (percent < 0) return { mood: 'sleeping', line: 'Aún no hay datos de uso', ...base };
+    if (percent < HAPPY_BELOW) return { mood: 'happy', line: `Vas sobrado: ${pct}%`, ...base };
+    return { mood: 'idle', line: `Todo tranquilo: ${pct}%`, ...base };
+  }, [meta, states, updatingAll, threshold, budgets, chosen]);
+}
+
+/** Porcentaje de uso de un proveedor sin ventanas, o -1 si no publica uno. */
+function providerPercent(st: ProviderState): number {
+  return st.usage_available && st.limit_tokens > 0 ? (st.used_tokens / st.limit_tokens) * 100 : -1;
+}
+
+/**
+ * ¿Tiene este proveedor algo que la mascota pueda mostrar? Vale un porcentaje
+ * de uso o un saldo en dinero; los que solo validan la clave no tienen nada.
+ */
+export function hasMascotValue(st?: ProviderState): boolean {
+  if (!st) return false;
+  return (st.windows ?? []).length > 0 || providerPercent(st) >= 0 || !!st.balance;
 }
 
 const INK = '#1e1b4b';

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Check,
   Clock,
   KeyRound,
   PlugZap,
@@ -23,6 +24,8 @@ import { ProviderMark } from './ProviderMark';
 import { UsageBar } from './UsageBar';
 import { Badge, Button, Card, Skeleton } from './primitives';
 import { useStore } from '@/store';
+import { api } from '@/lib/api';
+import { hasMascotValue } from './Mascot';
 
 export function ProviderCard({
   meta,
@@ -34,7 +37,27 @@ export function ProviderCard({
   const now = useNow();
   const openConnect = useStore((s) => s.openConnect);
   const manualRefresh = useStore((s) => s.manualRefresh);
+  const reload = useStore((s) => s.reload);
+  const notify = useStore((s) => s.notify);
+  const followed = useStore((s) => s.config?.mascot_provider === meta.id);
   const st = state;
+  const canFollow = followed || hasMascotValue(st);
+
+  // Solo un proveedor puede estar marcado; desmarcarlo vuelve al automático.
+  async function toggleMascot() {
+    try {
+      await api.setMascotProvider(followed ? '' : meta.id);
+      await reload();
+      notify(
+        'success',
+        followed
+          ? 'La mascota vuelve a mostrar el porcentaje más alto'
+          : `La mascota ahora muestra ${meta.name}`,
+      );
+    } catch (e) {
+      notify('error', (e as Error).message);
+    }
+  }
 
   const theme = brandTheme(meta.brand);
   const sc = STATUS_COLORS[st?.status ?? 'disconnected'] ?? STATUS_COLORS.disconnected;
@@ -65,6 +88,38 @@ export function ProviderCard({
             </span>
           </div>
         </div>
+        {meta.enabled && (
+          <button
+            onClick={() => void toggleMascot()}
+            disabled={!canFollow}
+            role="checkbox"
+            aria-checked={followed}
+            aria-label={`Mostrar ${meta.name} en la mascota`}
+            title={
+              !canFollow
+                ? 'Este proveedor no publica ni un porcentaje ni un saldo que la mascota pueda mostrar'
+                : followed
+                  ? 'La mascota y el widget muestran este proveedor. Pulsa para volver al automático (el porcentaje más alto).'
+                  : 'Mostrar este proveedor en la mascota y el widget'
+            }
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-30',
+              followed
+                ? 'border-violet-400/40 bg-violet-500/15 text-violet-100'
+                : 'border-white/[0.07] text-zinc-500 opacity-0 hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100',
+            )}
+          >
+            <span
+              className={cn(
+                'flex h-3.5 w-3.5 items-center justify-center rounded-[4px] border',
+                followed ? 'border-violet-300 bg-violet-400 text-zinc-900' : 'border-zinc-600',
+              )}
+            >
+              {followed && <Check className="h-3 w-3" strokeWidth={3} />}
+            </span>
+            Mascota
+          </button>
+        )}
         <button
           onClick={() => openConnect(meta.id)}
           title="Administrar proveedor"

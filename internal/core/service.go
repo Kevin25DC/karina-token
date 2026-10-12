@@ -1110,6 +1110,8 @@ type ConfigSnapshot struct {
 	// time; ReportBusinessName heads the client reports.
 	IdleGapMinutes     int    `json:"idle_gap_minutes"`
 	ReportBusinessName string `json:"report_business_name"`
+	// MascotProvider is the provider the mascot follows ("" = automatic).
+	MascotProvider string `json:"mascot_provider"`
 }
 
 // Config returns a snapshot of the configuration (never contains keys).
@@ -1137,6 +1139,7 @@ func (s *Service) Config() ConfigSnapshot {
 		SubscriptionMonthlyUSD:      s.cfg.SubscriptionMonthlyUSD,
 		IdleGapMinutes:              s.cfg.IdleGap(),
 		ReportBusinessName:          s.cfg.ReportBusinessName,
+		MascotProvider:              s.cfg.MascotProvider,
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"karina/internal/config"
 	"karina/internal/domain"
+	"karina/internal/providers"
 	"karina/internal/transcripts"
 )
 
@@ -148,6 +149,21 @@ func (s *Service) SetSubscriptionInterval(seconds int) error {
 	}
 	s.mu.Lock()
 	s.cfg.SubscriptionIntervalSeconds = seconds
+	s.mu.Unlock()
+	return config.Save(s.cfgPath, s.cfg)
+}
+
+// SetMascotProvider chooses the provider whose usage percentage the mascot
+// and the widget show. An empty id goes back to automatic (the highest).
+func (s *Service) SetMascotProvider(id string) error {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		if _, ok := providers.Get(domain.ProviderID(id)); !ok {
+			return fmt.Errorf("proveedor desconocido: %q", id)
+		}
+	}
+	s.mu.Lock()
+	s.cfg.MascotProvider = id
 	s.mu.Unlock()
 	return config.Save(s.cfgPath, s.cfg)
 }

@@ -211,6 +211,19 @@ Regla: **no inventar métricas**. Si el proveedor no expone un dato, la UI lo di
 - `frontend/src/components/Mascot.tsx`: **Kari**, personaje propio en SVG.
   El ánimo sale de `useMascotStatus` (mayor % de uso entre proveedores).
   No usar personajes de terceros (Clawd es de Anthropic, Mochi de Coucou).
+- **v0.10.0**:
+  - `config.MascotProvider` fija el proveedor que sigue la mascota ("" =
+    automático). Si es de saldo prepagado se muestra el importe
+    (`MascotStatus.display`), no un porcentaje. Check «Mascota» en
+    `ProviderCard`.
+  - El panel desplegado crece a lo ancho: `islandPanelSize` (dos proveedores
+    por columna; solo añade filas si las columnas no caben en pantalla). La
+    rejilla del frontend se adapta sola al ancho (`auto-fit`).
+  - Solo Windows (`internal/platform/taskbar_windows.go`): en modo widget la
+    ventana es una *tool window* (sin botón en la barra de tareas) y se
+    recorta con `SetWindowRgn` para que el fondo translúcido no asome en las
+    esquinas. Hay que volver a recortar en cada cambio de tamaño.
+  - Contorno animado: clase `.island-ring` en `index.css`.
 
 ## Trampas conocidas (ya resueltas, no reintroducir)
 

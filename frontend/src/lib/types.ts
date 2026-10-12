@@ -238,6 +238,8 @@ export interface ConfigSnapshot {
   idle_gap_minutes: number;
   /** Nombre que encabeza los reportes por cliente. */
   report_business_name: string;
+  /** Proveedor que sigue la mascota ('' = automático, el más alto). */
+  mascot_provider: string;
 }
 
 export interface TestResult {

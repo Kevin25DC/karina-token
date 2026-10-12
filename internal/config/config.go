@@ -46,6 +46,9 @@ type Config struct {
 	// is read (0 = default). Its endpoint rate-limits frequent polling, so it
 	// has its own, slower pace than RefreshIntervalSeconds.
 	SubscriptionIntervalSeconds int `toml:"subscription_interval_seconds"`
+	// MascotProvider is the provider whose usage percentage the mascot and
+	// the widget show. Empty means automatic: the highest one.
+	MascotProvider string `toml:"mascot_provider"`
 	// IdleGapMinutes is the pause that ends a stretch of work when measuring
 	// time worked on Claude Code projects (0 = default).
 	IdleGapMinutes int `toml:"idle_gap_minutes"`

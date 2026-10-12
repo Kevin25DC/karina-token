@@ -163,6 +163,10 @@ export function SetSubscriptionInterval(seconds) {
   return call('SetSubscriptionInterval', [seconds]);
 }
 
+export function SetMascotProvider(id) {
+  return call('SetMascotProvider', [id]);
+}
+
 export function SetIdleGapMinutes(minutes) {
   return call('SetIdleGapMinutes', [minutes]);
 }

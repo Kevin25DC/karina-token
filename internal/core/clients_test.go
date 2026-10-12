@@ -153,6 +153,17 @@ func TestClientsAndReport(t *testing.T) {
 		t.Fatalf("margin = %v billable = %v", summary.MarginUSD, summary.BillableUSD)
 	}
 
+	// The mascot can follow one provider, or go back to automatic.
+	if err := s.SetMascotProvider("deepseek"); err != nil || s.Config().MascotProvider != "deepseek" {
+		t.Fatalf("mascot provider = %q err=%v", s.Config().MascotProvider, err)
+	}
+	if err := s.SetMascotProvider("no-existe"); err == nil {
+		t.Fatal("unknown provider must be rejected")
+	}
+	if err := s.SetMascotProvider(""); err != nil || s.Config().MascotProvider != "" {
+		t.Fatalf("mascot provider not cleared: %q", s.Config().MascotProvider)
+	}
+
 	// The subscription has its own pace: 5 min by default, never under 2.
 	if got := s.Config().SubscriptionIntervalSeconds; got != 300 {
 		t.Fatalf("default subscription interval = %d", got)

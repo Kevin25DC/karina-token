@@ -59,6 +59,11 @@ export function WidgetMode() {
   }
 
   const enabled = meta.filter((m) => m.enabled);
+  // El proveedor que refleja la mascota va primero y marcado en la lista.
+  const ordered = [...enabled].sort(
+    (a, b) => Number(b.id === status.providerId) - Number(a.id === status.providerId),
+  );
+  const followedName = enabled.find((m) => m.id === status.providerId)?.name;
   const pct = status.percent >= 0 ? Math.round(status.percent) : null;
   const now = useNow();
   const clock = new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -90,6 +95,11 @@ export function WidgetMode() {
             <span className="font-mono text-[15px] font-semibold text-zinc-100">
               {pct}
               <span className="text-[11px] text-zinc-500">%</span>
+            </span>
+          ) : status.display ? (
+            // Proveedor de saldo prepagado: importe en vez de porcentaje.
+            <span className="font-mono text-[14px] font-semibold text-zinc-100">
+              {status.display}
             </span>
           ) : (
             <span className="text-[11px] text-zinc-500">Karina</span>
@@ -161,17 +171,30 @@ export function WidgetMode() {
               <p className={cn('mt-2 text-[11px] leading-snug', moodTextClass(status.mood))}>
                 {status.line}
               </p>
+              {followedName && (
+                <p className="mt-1.5 text-[10px] leading-snug text-zinc-600">
+                  {status.pinned ? 'Siguiendo' : 'Automático'}: {followedName}
+                </p>
+              )}
             </div>
 
             {/* Proveedores */}
-            <div className="min-w-0 flex-1 space-y-2 overflow-y-auto">
+            {/* Rejilla que se ensancha: la ventana crece a lo ancho (dos
+                proveedores por columna) y aquí caben tantas columnas como dé
+                el ancho que le dio el backend (ver islandPanelSize). */}
+            <div className="grid min-w-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fit,minmax(300px,1fr))] content-start gap-2 overflow-y-auto">
               {enabled.length === 0 && (
                 <p className="px-2 py-8 text-center text-xs text-zinc-600">
                   Sin proveedores conectados
                 </p>
               )}
-              {enabled.map((m) => (
-                <WidgetRow key={m.id} meta={m} state={states[m.id]} />
+              {ordered.map((m) => (
+                <WidgetRow
+                  key={m.id}
+                  meta={m}
+                  state={states[m.id]}
+                  followed={m.id === status.providerId}
+                />
               ))}
             </div>
           </div>
@@ -213,7 +236,16 @@ function IslandButton({
   );
 }
 
-function WidgetRow({ meta, state }: { meta: ProviderMeta; state?: ProviderState }) {
+function WidgetRow({
+  meta,
+  state,
+  followed,
+}: {
+  meta: ProviderMeta;
+  state?: ProviderState;
+  /** Es el proveedor cuyo porcentaje muestra la mascota. */
+  followed: boolean;
+}) {
   const now = useNow();
   const st = state;
 
@@ -231,12 +263,24 @@ function WidgetRow({ meta, state }: { meta: ProviderMeta; state?: ProviderState 
         : null;
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-2.5 py-2">
+    <div
+      className={cn(
+        'rounded-2xl border px-2.5 py-2',
+        followed
+          ? 'border-violet-400/30 bg-violet-500/[0.07]'
+          : 'border-white/[0.06] bg-white/[0.03]',
+      )}
+    >
       <div className="flex items-center gap-2">
         <ProviderMark id={meta.id} brand={meta.brand} size="sm" className="h-6 w-6 rounded-md" />
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-zinc-200">
           {meta.name}
         </span>
+        {followed && (
+          <span className="shrink-0 rounded-md border border-violet-400/30 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-violet-200">
+            Mascota
+          </span>
+        )}
         {usagePct >= 0 && (
           <span className="font-mono text-[13px] font-semibold text-zinc-100">
             {usagePct}

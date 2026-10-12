@@ -31,9 +31,14 @@ const (
 	islandRow    = 82
 	islandMinH   = 214
 	islandMaxH   = 560
-	islandRadius = 23 // corner radius of the window cut-out (UI draws 22)
-	normalWidth  = 1180
-	normalHeight = 780
+	// The expanded panel is islandWidth wide with one column of providers;
+	// each extra column adds islandColW. A column holds islandRowsPerCol.
+	islandColW         = 334
+	islandRowsPerCol   = 2
+	islandScreenMargin = 40
+	islandRadius       = 23 // corner radius of the window cut-out (UI draws 22)
+	normalWidth        = 1180
+	normalHeight       = 780
 )
 
 // App is the Wails-bound application object. Every exported method is a
@@ -178,9 +183,40 @@ func (a *App) SetWidgetExpanded(expanded bool) error {
 	return nil
 }
 
+// islandPanelSize returns the size of the expanded widget for n providers.
+// It grows sideways: providers sit two per column, so more providers make
+// the panel wider, not taller. Only when the columns no longer fit on the
+// screen does it add rows.
+func islandPanelSize(n, screenW int) (w, h int) {
+	if n < 1 {
+		n = 1
+	}
+	cols := (n + islandRowsPerCol - 1) / islandRowsPerCol
+	if screenW > 0 {
+		maxCols := (screenW-islandScreenMargin-islandWidth)/islandColW + 1
+		if maxCols < 1 {
+			maxCols = 1
+		}
+		if cols > maxCols {
+			cols = maxCols
+		}
+	}
+	rows := (n + cols - 1) / cols
+	w = islandWidth + (cols-1)*islandColW
+	h = islandHeader + rows*islandRow
+	if h < islandMinH {
+		h = islandMinH
+	}
+	if h > islandMaxH {
+		h = islandMaxH
+	}
+	return w, h
+}
+
 // placeIsland sizes the widget window and puts it at its anchor: the
 // top-centre of the screen by default, or wherever the user dragged it.
 func (a *App) placeIsland(expanded bool) {
+	screenW, screenH := a.screenSize()
 	w, h := islandPillW, islandPillH
 	if expanded {
 		n := 0
@@ -192,16 +228,9 @@ func (a *App) placeIsland(expanded bool) {
 		if n < 1 {
 			n = 1
 		}
-		w = islandWidth
-		h = islandHeader + n*islandRow
-		if h < islandMinH {
-			h = islandMinH
-		}
-		if h > islandMaxH {
-			h = islandMaxH
-		}
+		w, h = islandPanelSize(n, screenW)
 	}
-	sw, sh := a.screenSize()
+	sw, sh := screenW, screenH
 	if !a.islandPlaced {
 		// First placement of this widget session: where the user last left
 		// it, or the top-centre of the screen.
@@ -572,6 +601,12 @@ func (a *App) SetSubscriptionInterval(seconds int) error {
 // removes it).
 func (a *App) SetClientRate(client string, usd float64) error {
 	return a.svc.SetClientRate(client, usd)
+}
+
+// SetMascotProvider chooses the provider whose percentage the mascot and
+// the widget show ("" = automatic, the highest one).
+func (a *App) SetMascotProvider(id string) error {
+	return a.svc.SetMascotProvider(id)
 }
 
 // SetIdleGapMinutes sets the pause that ends a stretch of work when

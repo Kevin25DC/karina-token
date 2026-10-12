@@ -67,6 +67,7 @@ export const defaults: BridgeData = {
     subscription_monthly_usd: 0,
     idle_gap_minutes: 10,
     report_business_name: '',
+    mascot_provider: '',
   },
   providers: [],
   states: [],
