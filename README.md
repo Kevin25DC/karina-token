@@ -11,6 +11,24 @@ construida con **Go + Wails v2** y un frontend **React + TypeScript + Vite + Tai
 
 ---
 
+## Instalación
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Kevin25DC/karina-token/main/scripts/install.ps1 | iex
+```
+
+**macOS** (Terminal):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kevin25DC/karina-token/main/scripts/install.sh | bash
+```
+
+Los dos comandos descargan la última versión publicada, la instalan y la abren.
+Si prefieres hacerlo a mano, los zips están en
+[Releases](https://github.com/Kevin25DC/karina-token/releases/latest).
+
 ## Qué hace
 
 - Detecta y conecta **Anthropic Claude, OpenAI, Google Gemini y DeepSeek** (más un proveedor *Demo* de desarrollo).
