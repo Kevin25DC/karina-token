@@ -184,6 +184,9 @@ export default function App() {
             </span>
             <span>v{info?.version ?? '0.1.0'}</span>
           </div>
+          <p className="text-center text-[10px] text-zinc-600">
+            Hecho por <span className="text-zinc-400">Kevin Hernández</span>
+          </p>
         </div>
       </aside>
 
